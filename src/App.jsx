@@ -106,6 +106,17 @@ const GLOBAL_CSS = `
   .sec-title { font-family: 'DM Serif Display', serif; font-size: 26px; color: ${C.text}; margin-bottom: 18px; }
 
   .race-row { background: #fff; border: 1.5px solid ${C.border}; border-radius: 12px; padding: 15px 18px; margin-bottom: 9px; cursor: pointer; transition: all .18s; }
+  .course-accordion { border: 1.5px solid ${C.border}; border-radius: 12px; margin-bottom: 10px; overflow: hidden; background: #fff; }
+  .course-header { display: flex; justify-content: space-between; align-items: center; padding: 13px 16px; cursor: pointer; user-select: none; background: #fff; transition: background .15s; }
+  .course-header:hover { background: ${C.bg}; }
+  .course-header.has-sel { background: ${C.pinkBg}; border-bottom: 1.5px solid ${C.pink}; }
+  .course-chevron { font-size: 11px; color: ${C.muted}; transition: transform .2s; }
+  .course-chevron.open { transform: rotate(180deg); }
+  .course-races { border-top: 1.5px solid ${C.border}; }
+  .course-race-row { display: flex; justify-content: space-between; align-items: center; padding: 11px 16px; cursor: pointer; border-bottom: 1px solid ${C.bg}; transition: background .15s; }
+  .course-race-row:last-child { border-bottom: none; }
+  .course-race-row:hover { background: ${C.bg}; }
+  .course-race-row.sel { background: ${C.pinkBg}; }
   .race-row:hover { border-color: ${C.blue}; box-shadow: 0 3px 14px rgba(26,127,212,.1); transform: translateY(-1px); }
   .race-row.sel { border-color: ${C.pink}; background: ${C.pinkBg}; box-shadow: 0 3px 14px rgba(255,10,108,.12); }
 
@@ -234,25 +245,27 @@ function spToDecimal(sp) {
 // Win = 2pts (NAP = 4pts). EW = 1pt win + 1pt place (NAP = 2pt win + 2pt place).
 function calcSelectionReturn(sp, betType, position, ewTerms, isNap = false) {
   const dec = spToDecimal(sp);
+  // Always parse position as integer — API returns strings
+  const pos = (position !== null && position !== undefined) ? parseInt(position) : null;
   if (!dec) return { win: 0, place: 0, total: 0, staked: betType === "ew" ? (isNap ? 4 : 2) : (isNap ? 4 : 2) };
-  const mult = isNap ? 2 : 1; // NAP doubles the stake
+  const mult = isNap ? 2 : 1;
   if (betType === "win") {
     const staked = 2 * mult;
-    const ret = position === 1 ? +(staked * dec).toFixed(2) : 0;
+    const ret = pos === 1 ? +(staked * dec).toFixed(2) : 0;
     return { win: ret, place: 0, total: ret, staked };
   }
   if (!ewTerms) {
     const staked = 2 * mult;
-    const ret = position === 1 ? +(staked * dec).toFixed(2) : 0;
+    const ret = pos === 1 ? +(staked * dec).toFixed(2) : 0;
     return { win: ret, place: 0, total: ret, staked, winOnly: true };
   }
-  const winStake  = 1 * mult;
+  const winStake   = 1 * mult;
   const placeStake = 1 * mult;
-  const staked    = winStake + placeStake;
-  const winRet    = position === 1 ? +(winStake * dec).toFixed(2) : 0;
-  const placeOdds = +((dec - 1) / ewTerms.fraction + 1).toFixed(4);
-  const placed    = position !== null && position >= 1 && position <= ewTerms.places;
-  const placeRet  = placed ? +(placeStake * placeOdds).toFixed(2) : 0;
+  const staked     = winStake + placeStake;
+  const winRet     = pos === 1 ? +(winStake * dec).toFixed(2) : 0;
+  const placeOdds  = +((dec - 1) / ewTerms.fraction + 1).toFixed(4);
+  const placed     = pos !== null && pos >= 1 && pos <= ewTerms.places;
+  const placeRet   = placed ? +(placeStake * placeOdds).toFixed(2) : 0;
   return { win: winRet, place: placeRet, total: +(winRet + placeRet).toFixed(2), staked };
 }
 
@@ -282,9 +295,33 @@ async function apiGet(path) {
   return res.json();
 }
 
+// Complete list of UK & Irish racecourses — filters out international races
+const UK_IRE_COURSES = [
+  "aintree","ascot","bath","beverley","brighton","carlisle","cartmel","catterick",
+  "cheltenham","chelmsford","chelmsford city","chepstow","chester","doncaster",
+  "epsom","epsom downs","exeter","fakenham","ffos las","fontwell","fontwell park",
+  "goodwood","great yarmouth","yarmouth","hamilton","hamilton park","haydock",
+  "haydock park","hereford","hexham","huntingdon","kempton","kempton park",
+  "leicester","lingfield","lingfield park","ludlow","market rasen","musselburgh",
+  "newbury","newcastle","newmarket","newton abbot","nottingham","perth","plumpton",
+  "pontefract","redcar","ripon","salisbury","sandown","sandown park","sedgefield",
+  "southwell","stratford","taunton","thirsk","towcester","uttoxeter","warwick",
+  "wetherby","wincanton","windsor","wolverhampton","worcester","york",
+  "ayr","bangor","kelso",
+  "ballinrobe","bellewstown","clonmel","cork","curragh","the curragh","dundalk",
+  "fairyhouse","galway","gowran","gowran park","kilbeggan","killarney","laytown",
+  "leopardstown","limerick","listowel","naas","navan","punchestown","roscommon",
+  "sligo","thurles","tipperary","tramore","waterford","wexford",
+  "down royal","downpatrick",
+];
+function isUKIrish(course) {
+  const c = (course || "").toLowerCase().trim();
+  return UK_IRE_COURSES.some(k => c.includes(k) || k.includes(c));
+}
+
 function parseRacecards(data) {
   const list = data.racecards || data.results || (Array.isArray(data) ? data : []);
-  return list.map(r => {
+  return list.filter(r => isUKIrish(r.course || r.venue || "")).map(r => {
     const isHandicap = /handicap/i.test(r.race_name || r.name || "");
     const runners = (r.runners || []).map(h => ({
       id: h.horse_id || h.id || h.horse,
@@ -344,7 +381,8 @@ function mergePositions(races, data) {
       );
       if (!rh) return h;
       const position = rh.position != null ? parseInt(rh.position) : null;
-      return { ...h, position: isNaN(position) ? null : position, win: position === 1 };
+      const pos = (position !== null && !isNaN(position)) ? position : null;
+      return { ...h, position: pos, win: pos === 1 };
     });
     return { ...race, runners, ewTerms: getEWTerms(runners.length, race.isHandicap), resultIn: true };
   });
@@ -471,6 +509,110 @@ function HomeScreen({ onCreate, onJoin }) {
 }
 
 // ── SETUP ─────────────────────────────────────────────────────────────────────
+// ── COURSE ACCORDION ─────────────────────────────────────────────────────────
+function CourseAccordion({ racecards, selected, toggle, onSave }) {
+  // Group races by course, preserving time order within each course
+  const grouped = racecards.reduce((acc, r) => {
+    (acc[r.course] = acc[r.course] || []).push(r);
+    return acc;
+  }, {});
+  const courses = Object.keys(grouped).sort();
+
+  // Track which courses are expanded — auto-open any with selections
+  const [open, setOpen] = useState(() => new Set());
+
+  function toggleCourse(course) {
+    setOpen(prev => {
+      const n = new Set(prev);
+      n.has(course) ? n.delete(course) : n.add(course);
+      return n;
+    });
+  }
+
+  function selectAll(course, e) {
+    e.stopPropagation();
+    const races = grouped[course];
+    const allSel = races.every(r => selected.has(r.id));
+    races.forEach(r => {
+      if (allSel) { if (selected.has(r.id)) toggle(r.id); }
+      else        { if (!selected.has(r.id)) toggle(r.id); }
+    });
+  }
+
+  return (
+    <div className="fade">
+      <p style={{ color: C.muted, marginBottom: 12, fontSize: 14, fontWeight: 500 }}>
+        Tap a course to expand — <strong style={{ color: C.pink }}>{selected.size} race{selected.size !== 1 ? "s" : ""} selected</strong>
+      </p>
+
+      {courses.map(course => {
+        const races   = grouped[course];
+        const selCount = races.filter(r => selected.has(r.id)).length;
+        const allSel  = selCount === races.length;
+        const isOpen  = open.has(course);
+
+        return (
+          <div key={course} className="course-accordion">
+            <div className={`course-header${selCount > 0 ? " has-sel" : ""}`} onClick={() => toggleCourse(course)}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <span style={{ fontSize: 15, fontWeight: 700, color: selCount > 0 ? C.pink : C.text }}>{course}</span>
+                <span style={{ fontSize: 12, color: C.muted, fontWeight: 500 }}>{races.length} race{races.length !== 1 ? "s" : ""}</span>
+                {selCount > 0 && (
+                  <span className="badge b-pink" style={{ fontSize: 11, padding: "2px 8px" }}>
+                    {selCount} selected
+                  </span>
+                )}
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                {isOpen && (
+                  <button
+                    style={{ fontSize: 12, color: allSel ? C.danger : C.blue, fontWeight: 600, background: "none", border: "none", cursor: "pointer", padding: "2px 6px" }}
+                    onClick={e => selectAll(course, e)}>
+                    {allSel ? "Deselect all" : "Select all"}
+                  </button>
+                )}
+                <span className={`course-chevron${isOpen ? " open" : ""}`}>▼</span>
+              </div>
+            </div>
+
+            {isOpen && (
+              <div className="course-races">
+                {races.map(r => {
+                  const isSel = selected.has(r.id);
+                  return (
+                    <div key={r.id} className={`course-race-row${isSel ? " sel" : ""}`} onClick={() => toggle(r.id)}>
+                      <div>
+                        <div style={{ fontSize: 14, fontWeight: 600, color: isSel ? C.pink : C.text }}>
+                          <span className="time-badge">{r.time}</span>
+                          {r.name}
+                          {r.isHandicap && <span style={{ fontSize: 11, color: C.muted, marginLeft: 6, fontWeight: 500 }}>HCP</span>}
+                        </div>
+                        <div style={{ fontSize: 12, color: C.muted, marginTop: 3 }}>
+                          {r.runners.length} runners
+                          {r.distance ? ` · ${r.distance}` : ""}
+                          {r.going ? ` · ${r.going}` : ""}
+                          {r.ewTerms ? ` · EW ${r.ewTerms.places} places` : " · Win only"}
+                        </div>
+                      </div>
+                      <span style={{ fontSize: 20, flexShrink: 0 }}>{isSel ? "✅" : "⬜"}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        );
+      })}
+
+      <div style={{ textAlign: "center", marginTop: 22, marginBottom: 8 }}>
+        <button className="btn btn-pink" disabled={selected.size === 0} onClick={onSave}>
+          Save {selected.size} Race{selected.size !== 1 ? "s" : ""} →
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function SetupScreen({ challenge, onSave, onBack }) {
   const [day,       setDay]       = useState("today");
   const [racecards, setRacecards] = useState([]);
@@ -526,33 +668,7 @@ function SetupScreen({ challenge, onSave, onBack }) {
       {loading && <Loader />}
 
       {racecards.length > 0 && (
-        <div className="fade">
-          <p style={{ color: C.muted, marginBottom: 12, fontSize: 14, fontWeight: 500 }}>
-            Tap to select races — <strong style={{ color: C.pink }}>{selected.size} selected</strong>
-          </p>
-          {racecards.map(r => (
-            <div key={r.id} className={`race-row${selected.has(r.id) ? " sel" : ""}`} onClick={() => toggle(r.id)}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <div>
-                  <div style={{ fontSize: 16, fontWeight: 600, color: selected.has(r.id) ? C.pink : C.text }}>
-                    <span className="time-badge">{r.time}</span>{r.course}
-                    {r.isHandicap && <span style={{ fontSize: 11, color: C.muted, marginLeft: 6, fontWeight: 500 }}>HCP</span>}
-                  </div>
-                  <div style={{ color: C.muted, fontSize: 13, marginTop: 4 }}>{r.name}{r.distance ? ` · ${r.distance}` : ""}{r.going ? ` · ${r.going}` : ""}</div>
-                  <div style={{ color: C.mutedLt, fontSize: 12, marginTop: 2 }}>
-                    {r.runners.length} runners · {r.ewTerms ? `EW: ${r.ewTerms.places} places 1/${r.ewTerms.fraction}` : "Win only"}
-                  </div>
-                </div>
-                <span style={{ fontSize: 22 }}>{selected.has(r.id) ? "✅" : "⬜"}</span>
-              </div>
-            </div>
-          ))}
-          <div style={{ textAlign: "center", marginTop: 22 }}>
-            <button className="btn btn-pink" disabled={selected.size === 0} onClick={save}>
-              Save {selected.size} Race{selected.size !== 1 ? "s" : ""} →
-            </button>
-          </div>
-        </div>
+        <CourseAccordion racecards={racecards} selected={selected} toggle={toggle} onSave={save} />
       )}
     </div>
   );
@@ -899,11 +1015,20 @@ function ResultsScreen({ challenge, playerId, isCreator, onBack }) {
   async function fetchPositions() {
     setRef(true); setErr("");
     try {
-      const data  = await apiGet(`/api/results`);
-      const fresh = (await dbGet(ch.code)) || ch;
-      fresh.selectedRaces = mergePositions(fresh.selectedRaces || races, data);
+      const data    = await apiGet(`/api/results`);
+      const fresh   = (await dbGet(ch.code)) || ch;
+      const updated = mergePositions(fresh.selectedRaces || races, data);
+      const newCount = updated.filter(r => r.resultIn).length;
+      const oldCount = (fresh.selectedRaces || races).filter(r => r.resultIn).length;
+      fresh.selectedRaces = updated;
       await dbSet(fresh.code, fresh);
-      showToast("Positions loaded — please enter SPs below 📝");
+      if (newCount > oldCount) {
+        showToast(`${newCount - oldCount} result${newCount - oldCount !== 1 ? "s" : ""} loaded — enter SPs below 📝`);
+      } else if (newCount === 0) {
+        showToast("No positions confirmed yet — try again shortly ⏳");
+      } else {
+        showToast("Results already up to date ✓");
+      }
     } catch (e) { setErr(e.message); }
     setRef(false);
   }
