@@ -13,7 +13,7 @@ export default async function handler(req, res) {
   if (!user || !pass) return res.status(500).json({ error: 'API credentials not configured' });
 
   try {
-    const url = `https://api.theracingapi.com/v1/racecards/free?day=${day}&region_codes=gb,ire`;
+    const url = `https://api.theracingapi.com/v1/racecards/free?day=${day}&region_codes=gb&region_codes=ire`;
     const response = await fetch(url, {
       headers: {
         Authorization: 'Basic ' + Buffer.from(`${user}:${pass}`).toString('base64'),
