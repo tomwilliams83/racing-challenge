@@ -364,9 +364,16 @@ function raceTimeToDate(timeStr, day) {
   if (!timeStr) return null;
   const m = String(timeStr).match(/(\d{1,2}):(\d{2})/);
   if (!m) return null;
-  const base = day === "tomorrow" ? new Date(Date.now() + 86400000) : new Date();
-  base.setHours(parseInt(m[1]), parseInt(m[2]), 0, 0);
-  return base;
+  const hours = parseInt(m[1]), mins = parseInt(m[2]);
+  // Get date string in UK timezone (handles BST/GMT automatically)
+  const base = new Date();
+  if (day === "tomorrow") base.setDate(base.getDate() + 1);
+  const ukDate = base.toLocaleDateString("en-CA", { timeZone: "Europe/London" }); // YYYY-MM-DD
+  // Build a UTC time that corresponds to the given clock time in UK/London
+  const ukMidnight = new Date(`${ukDate}T00:00:00Z`);
+  const ukOffsetMs = new Date(ukMidnight.toLocaleString("en-US", { timeZone: "Europe/London" })).getTime()
+                   - new Date(ukMidnight.toLocaleString("en-US", { timeZone: "UTC" })).getTime();
+  return new Date(ukMidnight.getTime() - ukOffsetMs + (hours * 60 + mins) * 60000);
 }
 
 // Is it past the first race off time?
@@ -822,16 +829,7 @@ function PicksScreen({ challenge, playerId, onSubmit, onBack, editMode = false }
 
 // ── RESULTS ───────────────────────────────────────────────────────────────────
 // Parse "HH:MM" off time into today's Date object
-function offTimeToDate(timeStr, day) {
-  if (!timeStr) return null;
-  const m = String(timeStr).match(/(\d{1,2}):(\d{2})/);
-  if (!m) return null;
-  const base = day === "tomorrow"
-    ? new Date(Date.now() + 86400000)
-    : new Date();
-  base.setHours(parseInt(m[1]), parseInt(m[2]), 0, 0);
-  return base;
-}
+function offTimeToDate(timeStr, day) { return raceTimeToDate(timeStr, day); }
 
 // Return ms until the next scheduled fetch for a race, or null if all done
 function msUntilNextFetch(offTime, day, resultIn) {
