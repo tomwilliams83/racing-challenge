@@ -675,7 +675,7 @@ function SetupScreen({ challenge, onSave, onBack }) {
 }
 
 // ── LOBBY ─────────────────────────────────────────────────────────────────────
-function LobbyScreen({ challenge, playerId, onAction, onBack }) {
+function LobbyScreen({ challenge, playerId, onAction, onBack, deepLink }) {
   const [toast,  showToast] = useToast();
   const [ch,     setCh]     = useState(challenge);
   const isCreator           = ch.creatorId === playerId;
@@ -688,6 +688,13 @@ function LobbyScreen({ challenge, playerId, onAction, onBack }) {
   function copy() {
     navigator.clipboard?.writeText(ch.code).catch(() => {});
     showToast("Code copied! 📋");
+  }
+
+  function copyLink() {
+    if (deepLink) {
+      navigator.clipboard?.writeText(deepLink).catch(() => {});
+      showToast("Personal link copied! 🔗");
+    }
   }
 
   async function lockAndOpen() {
@@ -713,6 +720,16 @@ function LobbyScreen({ challenge, playerId, onAction, onBack }) {
           Share this code with friends. They visit this site and enter the code to join.
           {isCreator ? " Open selections when everyone's ready." : " The creator will open selections when everyone's in."}
         </p>
+        {deepLink && (
+          <div style={{ marginTop: 14 }}>
+            <button className="btn btn-outline btn-sm" onClick={copyLink}>
+              🔗 Copy my personal rejoin link
+            </button>
+            <div style={{ fontSize: 12, color: C.muted, marginTop: 6 }}>
+              Save this link — it takes you straight back in if you close the app
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="card card-blue" style={{ maxWidth: 440, margin: "0 auto 20px" }}>
@@ -1378,13 +1395,55 @@ function ResultsScreen({ challenge, playerId, isCreator, onBack }) {
 }
 
 // ─── ROOT ─────────────────────────────────────────────────────────────────────
+// ─── SESSION PERSISTENCE ─────────────────────────────────────────────────────
+const SESSION_KEY = "rc_session";
+function saveSession(code, playerId, playerName) {
+  try { localStorage.setItem(SESSION_KEY, JSON.stringify({ code, playerId, playerName, ts: Date.now() })); } catch {}
+}
+function loadSession() {
+  try { return JSON.parse(localStorage.getItem(SESSION_KEY) || "null"); } catch { return null; }
+}
+function clearSession() {
+  try { localStorage.removeItem(SESSION_KEY); } catch {}
+}
+
 export default function App() {
-  const [screen, setScreen] = useState("home");
-  const [ch,     setCh]     = useState(null);
-  const [pid,    setPid]    = useState(null);
-  const [player, setPlayer] = useState(null);
+  const [screen,    setScreen]  = useState("home");
+  const [ch,        setCh]      = useState(null);
+  const [pid,       setPid]     = useState(null);
+  const [player,    setPlayer]  = useState(null);
+  const [rejoining, setRejoining] = useState(false);
+  const [session,   setSession]  = useState(() => loadSession());
 
   const isCreator = ch?.creatorId === pid;
+
+  // Handle ?code=XXXXX&player=yyy deep links
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const code   = params.get("code")?.toUpperCase();
+    const player = params.get("player");
+    if (code && player) {
+      // Clear URL params without reloading
+      window.history.replaceState({}, "", window.location.pathname);
+      rejoinChallenge(code, player);
+    }
+  }, []);
+
+  async function rejoinChallenge(code, playerId) {
+    setRejoining(true);
+    const fresh = await dbGet(code);
+    if (fresh && fresh.players?.[playerId]) {
+      const p = fresh.players[playerId];
+      setCh(fresh); setPid(playerId); setPlayer(p);
+      saveSession(code, playerId, p.name);
+      setSession({ code, playerId, playerName: p.name });
+      const dest = fresh.status === "open" ? "lobby"
+                 : fresh.status === "selections" ? "picks"
+                 : "results";
+      setScreen(dest);
+    }
+    setRejoining(false);
+  }
 
   async function handleCreate(name) {
     const code = genCode(5), playerId = genCode(8);
@@ -1392,6 +1451,8 @@ export default function App() {
     const newCh = { code, creatorId: playerId, status: "open", day: "today", players: { [playerId]: p }, selectedRaces: [], selectedRaceIds: [], racecards: [] };
     await dbSet(code, newCh);
     setCh(newCh); setPid(playerId); setPlayer(p);
+    saveSession(code, playerId, name);
+    setSession({ code, playerId, playerName: name });
     setScreen("setup");
   }
 
@@ -1402,6 +1463,8 @@ export default function App() {
     fresh.players[playerId] = p;
     await dbSet(fresh.code, fresh);
     setCh(fresh); setPid(playerId); setPlayer(p);
+    saveSession(fresh.code, playerId, name);
+    setSession({ code: fresh.code, playerId, playerName: name });
     setScreen(fresh.status === "selections" ? "picks" : "lobby");
   }
 
@@ -1409,7 +1472,25 @@ export default function App() {
   function handleLobbyAction(action, updated) { if (updated) setCh(updated); setScreen(action); }
   function handlePicksSubmit(updatedCh, updatedPlayer) { setCh(updatedCh); setPlayer(updatedPlayer); setScreen("results"); }
 
+  function handleLeave() {
+    clearSession(); setSession(null);
+    setCh(null); setPid(null); setPlayer(null);
+    setScreen("home");
+  }
+
+  // Deep link URL for sharing
+  const deepLink = ch && pid
+    ? `${window.location.origin}${window.location.pathname}?code=${ch.code}&player=${pid}`
+    : null;
+
   const showCtx = screen !== "home" && ch;
+
+  if (rejoining) return (
+    <div style={{ minHeight: "100vh", background: C.bg, display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <style>{GLOBAL_CSS}</style>
+      <Loader />
+    </div>
+  );
 
   return (
     <div style={{ minHeight: "100vh", background: C.bg }}>
@@ -1432,13 +1513,32 @@ export default function App() {
               {screen !== "lobby"   && <button className="btn btn-ghost btn-sm" onClick={() => setScreen("lobby")}>Lobby</button>}
               {screen !== "picks"   && ch?.status === "selections" && <button className="btn btn-ghost btn-sm" onClick={() => setScreen("picks")}>My Picks</button>}
               {screen !== "results" && <button className="btn btn-ghost btn-sm" onClick={() => setScreen("results")}>Results</button>}
+              <button className="btn btn-ghost btn-sm" onClick={handleLeave}>Leave</button>
             </div>
           </div>
         )}
 
-        {screen === "home"    && <HomeScreen    onCreate={handleCreate} onJoin={handleJoin} />}
+        {screen === "home" && (
+          <>
+            {session && (
+              <div className="card" style={{ marginTop: 20, marginBottom: 4, textAlign: "center", borderColor: C.blue, background: "#f0f7ff" }}>
+                <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 4 }}>👋 Welcome back, {session.playerName}!</div>
+                <div style={{ fontSize: 13, color: C.muted, marginBottom: 14 }}>
+                  You were in challenge <span className="ctx-code">{session.code}</span>
+                </div>
+                <button className="btn btn-blue" onClick={() => rejoinChallenge(session.code, session.playerId)}>
+                  Rejoin Challenge →
+                </button>
+                <button className="btn btn-outline btn-sm" style={{ marginLeft: 10 }} onClick={() => { clearSession(); setSession(null); }}>
+                  Not me
+                </button>
+              </div>
+            )}
+            <HomeScreen onCreate={handleCreate} onJoin={handleJoin} />
+          </>
+        )}
         {screen === "setup"   && ch && <SetupScreen   challenge={ch} onSave={handleSetupSave} onBack={() => setScreen("home")} />}
-        {screen === "lobby"   && ch && <LobbyScreen   challenge={ch} playerId={pid} onAction={handleLobbyAction} onBack={() => setScreen("home")} />}
+        {screen === "lobby"   && ch && <LobbyScreen   challenge={ch} playerId={pid} onAction={handleLobbyAction} onBack={() => setScreen("home")} deepLink={deepLink} />}
         {screen === "picks"   && ch && <PicksScreen   challenge={ch} playerId={pid} onSubmit={handlePicksSubmit} onBack={() => setScreen("lobby")} />}
         {screen === "results" && ch && <ResultsScreen challenge={ch} playerId={pid} isCreator={isCreator} onBack={() => setScreen("lobby")} />}
       </div>
