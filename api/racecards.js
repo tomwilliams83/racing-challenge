@@ -5,8 +5,7 @@ export default async function handler(req, res) {
 
   if (req.method === 'OPTIONS') return res.status(200).end();
 
-  const { date } = req.query;
-  if (!date) return res.status(400).json({ error: 'date parameter required' });
+  const { day = 'today' } = req.query;
 
   const user = process.env.RACING_API_USER;
   const pass = process.env.RACING_API_PASS;
@@ -14,7 +13,7 @@ export default async function handler(req, res) {
   if (!user || !pass) return res.status(500).json({ error: 'API credentials not configured' });
 
   try {
-    const url = `https://api.theracingapi.com/v1/racecards?date=${date}`;
+    const url = `https://api.theracingapi.com/v1/racecards/free?day=${day}&region_codes=gb,ire`;
     const response = await fetch(url, {
       headers: {
         Authorization: 'Basic ' + Buffer.from(`${user}:${pass}`).toString('base64'),
