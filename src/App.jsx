@@ -1,4 +1,31 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { initializeApp } from "firebase/app";
+import { getDatabase, ref, set, get, onValue, off } from "firebase/database";
+
+// ─── FIREBASE ─────────────────────────────────────────────────────────────────
+const firebaseConfig = {
+  apiKey:      import.meta.env.VITE_FIREBASE_API_KEY,
+  databaseURL: import.meta.env.VITE_FIREBASE_DATABASE_URL,
+  projectId:   import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  appId:       import.meta.env.VITE_FIREBASE_APP_ID,
+};
+const fbApp = initializeApp(firebaseConfig);
+const db    = getDatabase(fbApp);
+
+async function dbGet(code) {
+  try {
+    const snap = await get(ref(db, `challenges/${code}`));
+    return snap.exists() ? snap.val() : null;
+  } catch { return null; }
+}
+async function dbSet(code, val) {
+  try { await set(ref(db, `challenges/${code}`), val); } catch {}
+}
+function dbListen(code, cb) {
+  const r = ref(db, `challenges/${code}`);
+  onValue(r, snap => { if (snap.exists()) cb(snap.val()); });
+  return () => off(r);
+}
 
 // ─── EACH-WAY TERMS ──────────────────────────────────────────────────────────
 function getEWTerms(numRunners, isHandicap) {
@@ -243,14 +270,7 @@ function useToast() {
   return [msg, show];
 }
 
-// ─── LOCAL STORAGE ────────────────────────────────────────────────────────────
-const DB_KEY = "rc_v4";
-function dbGet(code) {
-  try { return JSON.parse(localStorage.getItem(DB_KEY + ":" + code) || "null"); } catch { return null; }
-}
-function dbSet(code, val) {
-  try { localStorage.setItem(DB_KEY + ":" + code, JSON.stringify(val)); } catch {}
-}
+// ─── DB (Firebase) — see top of file ────────────────────────────────────────
 
 // ─── API ──────────────────────────────────────────────────────────────────────
 async function apiGet(path) {
@@ -333,9 +353,9 @@ function HomeScreen({ onCreate, onJoin }) {
   const [joinCode,   setJoinCode]   = useState("");
   const [err,        setErr]        = useState("");
 
-  function handleJoin() {
+  async function handleJoin() {
     if (!joinName.trim() || joinCode.length < 5) return;
-    const ch = dbGet(joinCode.toUpperCase());
+    const ch = await dbGet(joinCode.toUpperCase());
     if (!ch) { setErr("Challenge not found — check the code and try again."); return; }
     onJoin(ch, joinName.trim());
   }
@@ -414,10 +434,10 @@ function SetupScreen({ challenge, onSave, onBack }) {
     setSelected(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
   }
 
-  function save() {
+  async function save() {
     const selectedRaces = racecards.filter(r => selected.has(r.id));
     const updated = { ...challenge, day, racecards, selectedRaceIds: [...selected], selectedRaces, status: "open" };
-    dbSet(updated.code, updated);
+    await dbSet(updated.code, updated);
     showToast("Challenge saved!");
     setTimeout(() => onSave(updated), 600);
   }
@@ -486,11 +506,7 @@ function LobbyScreen({ challenge, playerId, onAction, onBack }) {
   const players             = Object.values(ch.players || {});
 
   useEffect(() => {
-    const t = setInterval(() => {
-      const fresh = dbGet(ch.code);
-      if (fresh) setCh(fresh);
-    }, 3000);
-    return () => clearInterval(t);
+    return dbListen(ch.code, fresh => setCh(fresh));
   }, [ch.code]);
 
   function copy() {
@@ -498,9 +514,9 @@ function LobbyScreen({ challenge, playerId, onAction, onBack }) {
     showToast("Code copied! 📋");
   }
 
-  function lockAndOpen() {
+  async function lockAndOpen() {
     const updated = { ...ch, status: "selections" };
-    dbSet(ch.code, updated);
+    await dbSet(ch.code, updated);
     setCh(updated);
     onAction("picks", updated);
   }
@@ -578,12 +594,12 @@ function PicksScreen({ challenge, playerId, onSubmit, onBack }) {
     setNapId(prev => prev === raceId ? null : raceId);
   }
 
-  function submit() {
+  async function submit() {
     setSaving(true);
-    const fresh = dbGet(challenge.code) || challenge;
+    const fresh = (await dbGet(challenge.code)) || challenge;
     const updatedPlayer = { ...player, picks, napRaceId: napId, picksSubmitted: true };
     fresh.players[playerId] = updatedPlayer;
-    dbSet(fresh.code, fresh);
+    await dbSet(fresh.code, fresh);
     setSaving(false);
     showToast("Picks locked in! 🏁");
     setTimeout(() => onSubmit(fresh, updatedPlayer), 700);
@@ -732,13 +748,9 @@ function ResultsScreen({ challenge, playerId, isCreator, onBack }) {
   const races   = ch.selectedRaces || [];
   const players = Object.values(ch.players || {});
 
-  // Poll localStorage for changes from other users
+  // Real-time listener — all players see updates instantly
   useEffect(() => {
-    const t = setInterval(() => {
-      const fresh = dbGet(ch.code);
-      if (fresh) setCh(fresh);
-    }, 8000);
-    return () => clearInterval(t);
+    return dbListen(ch.code, fresh => setCh(fresh));
   }, [ch.code]);
 
   function calcPlayer(p) {
@@ -769,21 +781,19 @@ function ResultsScreen({ challenge, playerId, isCreator, onBack }) {
     setRef(true); setErr("");
     try {
       const data  = await apiGet(`/api/results`);
-      const fresh = dbGet(ch.code) || ch;
+      const fresh = (await dbGet(ch.code)) || ch;
       fresh.selectedRaces = mergePositions(fresh.selectedRaces || races, data);
-      dbSet(fresh.code, fresh);
-      setCh({ ...fresh });
+      await dbSet(fresh.code, fresh);
       showToast("Positions loaded — please enter SPs below 📝");
     } catch (e) { setErr(e.message); }
     setRef(false);
   }
 
   // Save manually entered SPs
-  function saveSPs() {
-    const fresh = dbGet(ch.code) || ch;
+  async function saveSPs() {
+    const fresh = (await dbGet(ch.code)) || ch;
     fresh.selectedRaces = applySPs(fresh.selectedRaces || races, spInputs);
-    dbSet(fresh.code, fresh);
-    setCh({ ...fresh });
+    await dbSet(fresh.code, fresh);
     showToast("SPs saved! 🏆");
     setSpInputs({});
   }
@@ -1057,21 +1067,21 @@ export default function App() {
 
   const isCreator = ch?.creatorId === pid;
 
-  function handleCreate(name) {
+  async function handleCreate(name) {
     const code = genCode(5), playerId = genCode(8);
     const p = { id: playerId, name, picks: {}, picksSubmitted: false };
     const newCh = { code, creatorId: playerId, status: "open", day: "today", players: { [playerId]: p }, selectedRaces: [], selectedRaceIds: [], racecards: [] };
-    dbSet(code, newCh);
+    await dbSet(code, newCh);
     setCh(newCh); setPid(playerId); setPlayer(p);
     setScreen("setup");
   }
 
-  function handleJoin(existingCh, name) {
+  async function handleJoin(existingCh, name) {
     const playerId = genCode(8);
     const p = { id: playerId, name, picks: {}, picksSubmitted: false };
-    const fresh = dbGet(existingCh.code) || existingCh;
+    const fresh = (await dbGet(existingCh.code)) || existingCh;
     fresh.players[playerId] = p;
-    dbSet(fresh.code, fresh);
+    await dbSet(fresh.code, fresh);
     setCh(fresh); setPid(playerId); setPlayer(p);
     setScreen(fresh.status === "selections" ? "picks" : "lobby");
   }
