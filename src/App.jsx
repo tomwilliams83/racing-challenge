@@ -310,18 +310,33 @@ function parseRacecards(data) {
 // Merge positions only from API (no SP available on free plan)
 function mergePositions(races, data) {
   const list = data.results || (Array.isArray(data) ? data : []);
-  const byId = {};
-  list.forEach(r => { byId[r.race_id || r.id] = r; });
+
+  // Match result to racecard: try ID first, then course+time as fallback
+  function findResult(race) {
+    // Direct ID match
+    let res = list.find(r => (r.race_id || r.id) === race.id);
+    if (res) return res;
+    // Fallback: match on course name + off time (both normalised to lowercase)
+    const course = (race.course || "").toLowerCase().trim();
+    const time   = (race.time || "").trim();
+    return list.find(r => {
+      const rc = (r.course || r.venue || r.meeting || "").toLowerCase().trim();
+      const rt = (r.off_time || r.time || r.off || "").trim().substring(0, 5);
+      return rc.includes(course) || course.includes(rc) ? rt === time : false;
+    });
+  }
+
   return races.map(race => {
-    const res = byId[race.id];
-    if (!res) return race;
+    const res = findResult(race);
+    if (!res) return race; // result not in yet — leave unchanged
     const runners = race.runners.map(h => {
       const rh = (res.runners || []).find(x =>
-        (x.horse_id || x.id) === h.id || 
-        (x.horse || x.name || '').toLowerCase() === h.name.toLowerCase()
+        (x.horse_id || x.id) === h.id ||
+        (x.horse || x.name || "").toLowerCase().replace(/[^a-z]/g, "") ===
+          h.name.toLowerCase().replace(/[^a-z]/g, "")
       );
       if (!rh) return h;
-      const position = rh.position ? parseInt(rh.position) : null;
+      const position = rh.position != null ? parseInt(rh.position) : null;
       return { ...h, position: isNaN(position) ? null : position, win: position === 1 };
     });
     return { ...race, runners, ewTerms: getEWTerms(runners.length, race.isHandicap), resultIn: true };
@@ -343,6 +358,34 @@ function applySPs(races, spMap) {
 }
 
 // ─── COMPONENTS ───────────────────────────────────────────────────────────────
+// ─── LOCK / NON-RUNNER HELPERS ───────────────────────────────────────────────
+// Parse "HH:MM" time string into today's/tomorrow's Date
+function raceTimeToDate(timeStr, day) {
+  if (!timeStr) return null;
+  const m = String(timeStr).match(/(\d{1,2}):(\d{2})/);
+  if (!m) return null;
+  const base = day === "tomorrow" ? new Date(Date.now() + 86400000) : new Date();
+  base.setHours(parseInt(m[1]), parseInt(m[2]), 0, 0);
+  return base;
+}
+
+// Is it past the first race off time?
+function isChallengeLocked(ch) {
+  const races = ch.selectedRaces || [];
+  if (!races.length) return false;
+  const sorted = [...races].sort((a, b) => (a.time || "").localeCompare(b.time || ""));
+  const firstOff = raceTimeToDate(sorted[0]?.time, ch.day);
+  if (!firstOff) return false;
+  return Date.now() >= firstOff.getTime();
+}
+
+// Can a player still change picks for a specific race? (before that race's off time)
+function isRaceOpen(race, day) {
+  const off = raceTimeToDate(race.time, day);
+  if (!off) return false;
+  return Date.now() < off.getTime();
+}
+
 function Loader() { return <div className="loader"><span/><span/><span/></div>; }
 function Toast({ msg }) { return msg ? <div className="toast">{msg}</div> : null; }
 
@@ -570,55 +613,99 @@ function LobbyScreen({ challenge, playerId, onAction, onBack }) {
 }
 
 // ── PICKS ─────────────────────────────────────────────────────────────────────
-function PicksScreen({ challenge, playerId, onSubmit, onBack }) {
+function PicksScreen({ challenge, playerId, onSubmit, onBack, editMode = false }) {
   const player    = challenge.players?.[playerId];
   const races     = challenge.selectedRaces || [];
   const submitted = player?.picksSubmitted;
+  const locked    = isChallengeLocked(challenge);
+
   const [picks,   setPicks]  = useState(player?.picks || {});
   const [napId,   setNapId]  = useState(player?.napRaceId || null);
+  const [editing, setEditing] = useState(editMode || !submitted);
   const [saving,  setSaving] = useState(false);
   const [toast,   showToast] = useToast();
 
+  // Which races can still be changed? (before their off time — for NR replacements)
+  const openRaces = new Set(races.filter(r => isRaceOpen(r, challenge.day)).map(r => r.id));
+  // NR races for this player — races where their pick is marked as non-runner
+  const nrRaces = new Set(races.filter(r => {
+    const pickedId = picks[r.id]?.horseId;
+    const horse = r.runners.find(h => h.id === pickedId);
+    return horse?.nonRunner;
+  }).map(r => r.id));
+
   const allPicked = races.every(r => picks[r.id]?.horseId);
+  const canEdit   = !locked || nrRaces.size > 0; // can always edit NR races
 
   function pickHorse(raceId, hId) {
-    if (submitted) return;
+    // Only allow picking if: editing & (race not locked OR it's an NR race)
+    if (!editing) return;
+    if (locked && !nrRaces.has(raceId)) return;
     setPicks(p => ({ ...p, [raceId]: { horseId: hId, betType: p[raceId]?.betType || "win" } }));
   }
   function setBetType(raceId, betType) {
-    if (submitted) return;
+    if (!editing) return;
+    if (locked && !nrRaces.has(raceId)) return;
     setPicks(p => ({ ...p, [raceId]: { ...p[raceId], betType } }));
   }
   function toggleNap(raceId) {
-    if (submitted) return;
+    if (!editing || (locked && !nrRaces.has(raceId))) return;
     setNapId(prev => prev === raceId ? null : raceId);
   }
 
-  async function submit() {
+  async function save() {
     setSaving(true);
     const fresh = (await dbGet(challenge.code)) || challenge;
     const updatedPlayer = { ...player, picks, napRaceId: napId, picksSubmitted: true };
     fresh.players[playerId] = updatedPlayer;
     await dbSet(fresh.code, fresh);
     setSaving(false);
-    showToast("Picks locked in! 🏁");
+    showToast(submitted ? "Picks updated! ✅" : "Picks locked in! 🏁");
     setTimeout(() => onSubmit(fresh, updatedPlayer), 700);
   }
+
+  const isEditing = editing && (!locked || nrRaces.size > 0);
 
   return (
     <div style={{ paddingTop: 22 }} className="fade">
       <Toast msg={toast} />
       <button className="btn btn-outline btn-sm" style={{ marginBottom: 18 }} onClick={onBack}>← Back</button>
       <div className="eyebrow">2pts win · 1pt e/w each part · NAP doubles your stake</div>
-      <div className="sec-title">{player?.name}'s Picks</div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8, marginBottom: 16 }}>
+        <div className="sec-title" style={{ marginBottom: 0 }}>{player?.name}'s Picks</div>
+        {submitted && !locked && (
+          <button className="btn btn-outline btn-sm" onClick={() => setEditing(e => !e)}>
+            {editing ? "Cancel" : "✏️ Change Picks"}
+          </button>
+        )}
+      </div>
 
-      {submitted && (
+      {/* Lock status banner */}
+      {locked && nrRaces.size === 0 && (
+        <div className="card" style={{ background: "#fff3f3", borderColor: C.danger, marginBottom: 16, textAlign: "center" }}>
+          <div style={{ fontWeight: 700, color: C.danger }}>🔒 Selections Locked</div>
+          <div style={{ fontSize: 13, color: C.muted, marginTop: 4 }}>The first race has gone off — no further changes allowed.</div>
+        </div>
+      )}
+
+      {/* Non-runner alert */}
+      {nrRaces.size > 0 && (
+        <div className="card" style={{ background: "#fff8ee", borderColor: "#ffb700", marginBottom: 16 }}>
+          <div style={{ fontWeight: 700, color: "#b36000" }}>⚠️ Non-Runner Alert</div>
+          <div style={{ fontSize: 13, color: "#b36000", marginTop: 4 }}>
+            One or more of your selections is a non-runner. Pick a replacement before the race goes off,
+            or your bet will default to 2pts on the SP favourite.
+          </div>
+        </div>
+      )}
+
+      {submitted && !editing && (
         <div className="badge b-green" style={{ fontSize: 14, padding: "8px 18px", marginBottom: 16, display: "inline-block" }}>
           ✅ Picks submitted — good luck!
         </div>
       )}
 
-      {!submitted && (
+      {isEditing && (
         <div className="nap-banner">
           <div>
             <span className="nap-badge">NAP</span>
@@ -627,24 +714,27 @@ function PicksScreen({ challenge, playerId, onSubmit, onBack }) {
               {napId ? `— ${races.find(r => r.id === napId)?.course || "selected"} (doubles your stake)` : "— pick a horse first, then mark one race as your NAP"}
             </span>
           </div>
-          {napId && !submitted && (
+          {napId && (
             <button className="btn-nap-off" onClick={() => setNapId(null)}>Clear NAP</button>
           )}
         </div>
       )}
 
       {races.map((race, i) => {
-        const myPick   = picks[race.id];
-        const pickedId = myPick?.horseId;
-        const betType  = myPick?.betType || "win";
-        const ewAvail  = !!race.ewTerms;
-        const isNap    = napId === race.id;
+        const myPick     = picks[race.id];
+        const pickedId   = myPick?.horseId;
+        const betType    = myPick?.betType || "win";
+        const ewAvail    = !!race.ewTerms;
+        const isNap      = napId === race.id;
+        const isNR       = nrRaces.has(race.id);
+        const raceOpen   = openRaces.has(race.id);
+        const canEditThis = isEditing && (!locked || isNR) && raceOpen;
 
         return (
-          <div key={race.id} className="card" style={{ marginBottom: 12, ...(isNap ? { borderColor: "#ff8c00", boxShadow: "0 4px 18px rgba(255,140,0,.2)" } : {}) }}>
+          <div key={race.id} className="card" style={{ marginBottom: 12, opacity: locked && !isNR && !isEditing ? 0.85 : 1, ...(isNap ? { borderColor: "#ff8c00", boxShadow: "0 4px 18px rgba(255,140,0,.2)" } : {}), ...(isNR ? { borderColor: "#ffb700", background: "#fffbf0" } : {}) }}>
             <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 8, marginBottom: 10 }}>
               <div>
-                <div className="eyebrow">Race {i + 1}</div>
+                <div className="eyebrow">Race {i + 1} {isNR ? "⚠️ NON-RUNNER" : locked && !raceOpen ? "🔒" : ""}</div>
                 <div style={{ fontSize: 18, fontWeight: 700, color: C.text, marginTop: 2 }}>
                   <span className="time-badge">{race.time}</span>{race.course}
                   {isNap && <span className="nap-badge">NAP</span>}
@@ -658,16 +748,16 @@ function PicksScreen({ challenge, playerId, onSubmit, onBack }) {
               </div>
               <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 5 }}>
                 {pickedId && <span className={`badge ${betType === "ew" ? "b-purple" : "b-pink"}`}>✓ {betType === "ew" ? "1pt e/w" : "Win 2pts"}{isNap ? " ×2" : ""}</span>}
-                {pickedId && !submitted && (
+                {pickedId && canEditThis && (
                   <button className={isNap ? "btn-nap" : "btn-nap-off"} onClick={() => toggleNap(race.id)}>
                     {isNap ? "⭐ NAP" : "Set as NAP"}
                   </button>
                 )}
-                {submitted && isNap && <span className="nap-badge">NAP</span>}
+                {!canEditThis && isNap && <span className="nap-badge">⭐ NAP</span>}
               </div>
             </div>
 
-            {pickedId && ewAvail && !submitted && (
+            {pickedId && ewAvail && canEditThis && (
               <div className="bet-toggle">
                 <button className={betType === "win" ? "active-win" : ""} onClick={() => setBetType(race.id, "win")}>
                   Win — {isNap ? "4pts" : "2pts"}
@@ -678,30 +768,51 @@ function PicksScreen({ challenge, playerId, onSubmit, onBack }) {
               </div>
             )}
 
-            <div className="horse-grid">
-              {race.runners.map(h => {
-                const isPicked = pickedId === h.id;
-                return (
-                  <button key={h.id}
-                    className={`hbtn${isPicked ? (betType === "ew" ? " ew-picked" : " win-picked") : ""}${isPicked && isNap ? " nap-outline" : ""}`}
-                    onClick={() => pickHorse(race.id, h.id)}>
-                    <span style={{ textAlign: "left" }}>
-                      <span style={{ fontWeight: isPicked ? 600 : 400 }}>{h.number ? `${h.number}. ` : ""}{h.name}</span>
-                      {h.jockey && <span style={{ display: "block", fontSize: 11, opacity: .6, marginTop: 1 }}>{h.jockey}</span>}
-                    </span>
-                    <span className="sp-chip">SP</span>
-                  </button>
-                );
-              })}
-            </div>
+            {/* Show runner list only if editable, otherwise just show the pick */}
+            {canEditThis ? (
+              <div className="horse-grid">
+                {race.runners.filter(h => !h.nonRunner).map(h => {
+                  const isPicked = pickedId === h.id;
+                  return (
+                    <button key={h.id}
+                      className={`hbtn${isPicked ? (betType === "ew" ? " ew-picked" : " win-picked") : ""}${isPicked && isNap ? " nap-outline" : ""}`}
+                      onClick={() => pickHorse(race.id, h.id)}>
+                      <span style={{ textAlign: "left" }}>
+                        <span style={{ fontWeight: isPicked ? 600 : 400 }}>{h.number ? `${h.number}. ` : ""}{h.name}</span>
+                        {h.jockey && <span style={{ display: "block", fontSize: 11, opacity: .6, marginTop: 1 }}>{h.jockey}</span>}
+                      </span>
+                      <span className="sp-chip">SP</span>
+                    </button>
+                  );
+                })}
+              </div>
+            ) : (
+              pickedId && (
+                <div style={{ fontSize: 15, fontWeight: 600, color: C.text, marginTop: 6, padding: "8px 0" }}>
+                  {race.runners.find(h => h.id === pickedId)?.name || "Unknown"}
+                  <span style={{ fontWeight: 400, fontSize: 13, color: C.muted, marginLeft: 8 }}>
+                    {betType === "ew" ? "Each-Way" : "Win"}
+                  </span>
+                </div>
+              )
+            )}
+
+            {/* NR: race has gone off and no replacement made */}
+            {isNR && !raceOpen && (
+              <div style={{ fontSize: 13, color: "#b36000", marginTop: 8, fontWeight: 500 }}>
+                ⏰ Deadline passed — defaulting to 2pts on SP favourite.
+              </div>
+            )}
           </div>
         );
       })}
 
-      {!submitted && (
-        <div style={{ textAlign: "center", marginTop: 20 }}>
-          <button className="btn btn-pink" disabled={!allPicked || saving} onClick={submit}>
-            {saving ? "Saving…" : allPicked ? "Submit Picks 🏁" : `${races.length - Object.values(picks).filter(p => p?.horseId).length} more to pick`}
+      {isEditing && (
+        <div style={{ textAlign: "center", marginTop: 20, marginBottom: 24 }}>
+          <button className="btn btn-pink"
+            disabled={(!allPicked && !submitted) || saving}
+            onClick={save}>
+            {saving ? "Saving…" : submitted ? "Save Changes ✅" : allPicked ? "Submit Picks 🏁" : `${races.length - Object.values(picks).filter(p => p?.horseId).length} more to pick`}
           </button>
         </div>
       )}
@@ -791,8 +902,19 @@ function ResultsScreen({ challenge, playerId, isCreator, onBack }) {
 
   // Save manually entered SPs
   async function saveSPs() {
+    // Trim inputs and filter empties
+    const cleanInputs = {};
+    Object.entries(spInputs).forEach(([raceId, horses]) => {
+      const clean = {};
+      Object.entries(horses).forEach(([hId, val]) => {
+        const v = String(val || "").trim();
+        if (v) clean[hId] = v;
+      });
+      if (Object.keys(clean).length) cleanInputs[raceId] = clean;
+    });
+    // Apply to latest ch from Firebase
     const fresh = (await dbGet(ch.code)) || ch;
-    fresh.selectedRaces = applySPs(fresh.selectedRaces || races, spInputs);
+    fresh.selectedRaces = applySPs(fresh.selectedRaces || races, cleanInputs);
     await dbSet(fresh.code, fresh);
     showToast("SPs saved! 🏆");
     setSpInputs({});
@@ -805,14 +927,46 @@ function ResultsScreen({ challenge, playerId, isCreator, onBack }) {
     }));
   }
 
+  // Mark/unmark a horse as non-runner — clears affected players' picks for that race
+  async function toggleNonRunner(raceId, horseId) {
+    const fresh = (await dbGet(ch.code)) || ch;
+    fresh.selectedRaces = (fresh.selectedRaces || []).map(race => {
+      if (race.id !== raceId) return race;
+      const runners = race.runners.map(h =>
+        h.id === horseId ? { ...h, nonRunner: !h.nonRunner } : h
+      );
+      return { ...race, runners };
+    });
+    // Clear picks for any player who had the NR horse
+    const nrHorseIds = new Set(
+      (fresh.selectedRaces.find(r => r.id === raceId)?.runners || [])
+        .filter(h => h.nonRunner).map(h => h.id)
+    );
+    Object.values(fresh.players || {}).forEach(p => {
+      const pick = p.picks?.[raceId];
+      if (pick && nrHorseIds.has(pick.horseId)) {
+        p.picks[raceId] = { ...pick, horseId: null, nonRunner: true };
+      }
+    });
+    await dbSet(fresh.code, fresh);
+    showToast("Non-runner updated");
+  }
+
   // For each race, which horses need an SP entered?
-  // = winner always + any placed horses (for EW bets)
+  // Always need winner (pos 1) + any placed finishers (for EW calc)
   function getSpNeeded(race) {
     if (!race.resultIn) return [];
     const maxPlace = race.ewTerms?.places || 1;
-    return race.runners
-      .filter(h => h.position && h.position >= 1 && h.position <= maxPlace)
-      .sort((a, b) => a.position - b.position);
+    // Check if any player went EW on this race
+    const anyEW = Object.values(ch.players || {}).some(p =>
+      p.picks?.[race.id]?.betType === "ew"
+    );
+    // Need winner always; need placed horses if anyone went EW
+    const limit = anyEW ? maxPlace : 1;
+    const finishers = race.runners
+      .filter(h => h.position && Number(h.position) >= 1 && Number(h.position) <= limit)
+      .sort((a, b) => Number(a.position) - Number(b.position));
+    return finishers;
   }
 
   // Show a human-readable countdown to next auto-fetch
@@ -843,6 +997,38 @@ function ResultsScreen({ challenge, playerId, isCreator, onBack }) {
 
       {err && <div className="err" style={{ marginBottom: 14 }}>{err}</div>}
 
+      {/* Non-runner management — creator only, shown for all races before they run */}
+      {isCreator && (
+        <div style={{ marginBottom: 16 }}>
+          {races.filter(r => !r.resultIn).map(race => (
+            <div key={race.id} className="card" style={{ marginBottom: 8 }}>
+              <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 8 }}>
+                <span className="time-badge">{race.time}</span>{race.course}
+                <span style={{ fontSize: 12, color: C.muted, marginLeft: 8, fontWeight: 400 }}>
+                  — mark non-runners
+                </span>
+              </div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                {race.runners.map(h => (
+                  <button key={h.id}
+                    onClick={() => toggleNonRunner(race.id, h.id)}
+                    style={{
+                      fontSize: 12, padding: "4px 10px", borderRadius: 20, border: "1.5px solid",
+                      cursor: "pointer", fontFamily: "inherit", fontWeight: 600,
+                      borderColor: h.nonRunner ? C.danger : C.border,
+                      background: h.nonRunner ? "#fff0f0" : "#fff",
+                      color: h.nonRunner ? C.danger : C.muted,
+                      textDecoration: h.nonRunner ? "line-through" : "none",
+                    }}>
+                    {h.nonRunner ? "✗ " : ""}{h.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* SP Entry section — shown to creator once positions are loaded */}
       {isCreator && races.some(r => r.resultIn) && (
         <div className="sp-section">
@@ -857,8 +1043,8 @@ function ResultsScreen({ challenge, playerId, isCreator, onBack }) {
             if (!needed.length) return null;
             return (
               <div key={race.id} style={{ marginBottom: 14 }}>
-                <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 6 }}>
-                  <span className="time-badge">{race.time}</span>{race.course}
+                <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 6, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span><span className="time-badge">{race.time}</span>{race.course}</span>
                 </div>
                 {needed.map(h => {
                   const posClass = h.position === 1 ? "winner" : "placed";
