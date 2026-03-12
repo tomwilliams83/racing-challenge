@@ -161,6 +161,14 @@ const GLOBAL_CSS = `
   .day-btn:hover:not(.active) { border-color: ${C.pink}; color: ${C.pink}; }
 
   .time-badge { display: inline-block; background: ${C.pink}; color: #fff; border-radius: 6px; padding: 2px 8px; font-size: 12px; font-weight: 700; margin-right: 8px; letter-spacing: .5px; }
+
+  .nap-badge { display: inline-block; background: linear-gradient(135deg, #ff8c00, #ffb700); color: #fff; border-radius: 6px; padding: 2px 9px; font-size: 12px; font-weight: 800; letter-spacing: 1px; margin-left: 6px; box-shadow: 0 2px 8px rgba(255,140,0,.35); vertical-align: middle; }
+  .nap-banner { background: #fff8ee; border: 1.5px solid #ffb700; border-radius: 12px; padding: 12px 16px; margin-bottom: 14px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+  .btn-nap     { background: linear-gradient(135deg, #ff8c00, #ffb700); color: #fff; padding: 7px 16px; border-radius: 20px; font-size: 13px; font-weight: 700; border: none; cursor: pointer; font-family: 'DM Sans',sans-serif; box-shadow: 0 2px 10px rgba(255,140,0,.35); letter-spacing: .5px; transition: all .15s; }
+  .btn-nap:hover { transform: translateY(-1px); box-shadow: 0 4px 14px rgba(255,140,0,.45); }
+  .btn-nap-off { background: ${C.bg}; border: 1.5px solid ${C.border}; color: ${C.muted}; padding: 7px 16px; border-radius: 20px; font-size: 13px; font-weight: 600; cursor: pointer; font-family: 'DM Sans',sans-serif; transition: all .15s; }
+  .btn-nap-off:hover { border-color: #ff8c00; color: #ff8c00; }
+  .hbtn.nap-outline { outline: 3px solid #ff8c00; outline-offset: 2px; }
 `;
 
 // ─── UTILITIES ────────────────────────────────────────────────────────────────
@@ -180,23 +188,29 @@ function spToDecimal(sp) {
   return isNaN(f) ? null : f;
 }
 
-// Win = 2pts. EW = 1pt win + 1pt place.
-function calcSelectionReturn(sp, betType, position, ewTerms) {
+// Win = 2pts (NAP = 4pts). EW = 1pt win + 1pt place (NAP = 2pt win + 2pt place).
+function calcSelectionReturn(sp, betType, position, ewTerms, isNap = false) {
   const dec = spToDecimal(sp);
-  if (!dec) return { win: 0, place: 0, total: 0 };
+  if (!dec) return { win: 0, place: 0, total: 0, staked: betType === "ew" ? (isNap ? 4 : 2) : (isNap ? 4 : 2) };
+  const mult = isNap ? 2 : 1; // NAP doubles the stake
   if (betType === "win") {
-    const ret = position === 1 ? +(2 * dec).toFixed(2) : 0;
-    return { win: ret, place: 0, total: ret };
+    const staked = 2 * mult;
+    const ret = position === 1 ? +(staked * dec).toFixed(2) : 0;
+    return { win: ret, place: 0, total: ret, staked };
   }
   if (!ewTerms) {
-    const ret = position === 1 ? +(2 * dec).toFixed(2) : 0;
-    return { win: ret, place: 0, total: ret, winOnly: true };
+    const staked = 2 * mult;
+    const ret = position === 1 ? +(staked * dec).toFixed(2) : 0;
+    return { win: ret, place: 0, total: ret, staked, winOnly: true };
   }
-  const winRet    = position === 1 ? +(1 * dec).toFixed(2) : 0;
+  const winStake  = 1 * mult;
+  const placeStake = 1 * mult;
+  const staked    = winStake + placeStake;
+  const winRet    = position === 1 ? +(winStake * dec).toFixed(2) : 0;
   const placeOdds = +((dec - 1) / ewTerms.fraction + 1).toFixed(4);
   const placed    = position !== null && position >= 1 && position <= ewTerms.places;
-  const placeRet  = placed ? +(1 * placeOdds).toFixed(2) : 0;
-  return { win: winRet, place: placeRet, total: +(winRet + placeRet).toFixed(2) };
+  const placeRet  = placed ? +(placeStake * placeOdds).toFixed(2) : 0;
+  return { win: winRet, place: placeRet, total: +(winRet + placeRet).toFixed(2), staked };
 }
 
 function fmtPts(v) {
@@ -511,6 +525,7 @@ function PicksScreen({ challenge, playerId, onSubmit, onBack }) {
   const races     = challenge.selectedRaces || [];
   const submitted = player?.picksSubmitted;
   const [picks,   setPicks]  = useState(player?.picks || {});
+  const [napId,   setNapId]  = useState(player?.napRaceId || null);
   const [saving,  setSaving] = useState(false);
   const [toast,   showToast] = useToast();
 
@@ -524,11 +539,15 @@ function PicksScreen({ challenge, playerId, onSubmit, onBack }) {
     if (submitted) return;
     setPicks(p => ({ ...p, [raceId]: { ...p[raceId], betType } }));
   }
+  function toggleNap(raceId) {
+    if (submitted) return;
+    setNapId(prev => prev === raceId ? null : raceId);
+  }
 
   function submit() {
     setSaving(true);
     const fresh = dbGet(challenge.code) || challenge;
-    const updatedPlayer = { ...player, picks, picksSubmitted: true };
+    const updatedPlayer = { ...player, picks, napRaceId: napId, picksSubmitted: true };
     fresh.players[playerId] = updatedPlayer;
     dbSet(fresh.code, fresh);
     setSaving(false);
@@ -540,7 +559,7 @@ function PicksScreen({ challenge, playerId, onSubmit, onBack }) {
     <div style={{ paddingTop: 22 }} className="fade">
       <Toast msg={toast} />
       <button className="btn btn-outline btn-sm" style={{ marginBottom: 18 }} onClick={onBack}>← Back</button>
-      <div className="eyebrow">2pts win · 1pt each-way win + 1pt place</div>
+      <div className="eyebrow">2pts win · 1pt e/w each part · NAP doubles your stake</div>
       <div className="sec-title">{player?.name}'s Picks</div>
 
       {submitted && (
@@ -549,19 +568,36 @@ function PicksScreen({ challenge, playerId, onSubmit, onBack }) {
         </div>
       )}
 
+      {!submitted && (
+        <div className="nap-banner">
+          <div>
+            <span className="nap-badge">NAP</span>
+            <span style={{ fontWeight: 600, fontSize: 14, marginLeft: 8 }}>Your NAP</span>
+            <span style={{ color: "#b36000", fontSize: 13, marginLeft: 6 }}>
+              {napId ? `— ${races.find(r => r.id === napId)?.course || "selected"} (doubles your stake)` : "— pick a horse first, then mark one race as your NAP"}
+            </span>
+          </div>
+          {napId && !submitted && (
+            <button className="btn-nap-off" onClick={() => setNapId(null)}>Clear NAP</button>
+          )}
+        </div>
+      )}
+
       {races.map((race, i) => {
         const myPick   = picks[race.id];
         const pickedId = myPick?.horseId;
         const betType  = myPick?.betType || "win";
         const ewAvail  = !!race.ewTerms;
+        const isNap    = napId === race.id;
 
         return (
-          <div key={race.id} className="card" style={{ marginBottom: 12 }}>
+          <div key={race.id} className="card" style={{ marginBottom: 12, ...(isNap ? { borderColor: "#ff8c00", boxShadow: "0 4px 18px rgba(255,140,0,.2)" } : {}) }}>
             <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 8, marginBottom: 10 }}>
               <div>
                 <div className="eyebrow">Race {i + 1}</div>
                 <div style={{ fontSize: 18, fontWeight: 700, color: C.text, marginTop: 2 }}>
                   <span className="time-badge">{race.time}</span>{race.course}
+                  {isNap && <span className="nap-badge">NAP</span>}
                 </div>
                 <div style={{ color: C.muted, fontSize: 13, marginTop: 3 }}>
                   {race.name}{race.distance ? ` · ${race.distance}` : ""}
@@ -570,13 +606,25 @@ function PicksScreen({ challenge, playerId, onSubmit, onBack }) {
                     : <span style={{ color: C.mutedLt, fontSize: 12, marginLeft: 8 }}>Win only</span>}
                 </div>
               </div>
-              {pickedId && <span className={`badge ${betType === "ew" ? "b-purple" : "b-pink"}`}>✓ {betType === "ew" ? "Each-Way" : "Win"}</span>}
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 5 }}>
+                {pickedId && <span className={`badge ${betType === "ew" ? "b-purple" : "b-pink"}`}>✓ {betType === "ew" ? "1pt e/w" : "Win 2pts"}{isNap ? " ×2" : ""}</span>}
+                {pickedId && !submitted && (
+                  <button className={isNap ? "btn-nap" : "btn-nap-off"} onClick={() => toggleNap(race.id)}>
+                    {isNap ? "⭐ NAP" : "Set as NAP"}
+                  </button>
+                )}
+                {submitted && isNap && <span className="nap-badge">NAP</span>}
+              </div>
             </div>
 
             {pickedId && ewAvail && !submitted && (
               <div className="bet-toggle">
-                <button className={betType === "win" ? "active-win" : ""} onClick={() => setBetType(race.id, "win")}>Win (2pts)</button>
-                <button className={betType === "ew"  ? "active-ew"  : ""} onClick={() => setBetType(race.id, "ew")}>Each-Way (2pts)</button>
+                <button className={betType === "win" ? "active-win" : ""} onClick={() => setBetType(race.id, "win")}>
+                  Win — {isNap ? "4pts" : "2pts"}
+                </button>
+                <button className={betType === "ew" ? "active-ew" : ""} onClick={() => setBetType(race.id, "ew")}>
+                  Each-Way — {isNap ? "2pts" : "1pt"} e/w
+                </button>
               </div>
             )}
 
@@ -584,7 +632,9 @@ function PicksScreen({ challenge, playerId, onSubmit, onBack }) {
               {race.runners.map(h => {
                 const isPicked = pickedId === h.id;
                 return (
-                  <button key={h.id} className={`hbtn${isPicked ? (betType === "ew" ? " ew-picked" : " win-picked") : ""}`} onClick={() => pickHorse(race.id, h.id)}>
+                  <button key={h.id}
+                    className={`hbtn${isPicked ? (betType === "ew" ? " ew-picked" : " win-picked") : ""}${isPicked && isNap ? " nap-outline" : ""}`}
+                    onClick={() => pickHorse(race.id, h.id)}>
                     <span style={{ textAlign: "left" }}>
                       <span style={{ fontWeight: isPicked ? 600 : 400 }}>{h.number ? `${h.number}. ` : ""}{h.name}</span>
                       {h.jockey && <span style={{ display: "block", fontSize: 11, opacity: .6, marginTop: 1 }}>{h.jockey}</span>}
@@ -619,7 +669,7 @@ function ResultsScreen({ challenge, playerId, isCreator, onBack }) {
 
   const races   = ch.selectedRaces || [];
   const players = Object.values(ch.players || {});
-  const staked  = races.length * 2;
+  // staked is now per-player (NAP adds extra pts)
 
   useEffect(() => {
     const t = setInterval(() => {
@@ -630,20 +680,22 @@ function ResultsScreen({ challenge, playerId, isCreator, onBack }) {
   }, [ch.code]);
 
   function calcPlayer(p) {
-    let totalReturn = 0, wins = 0, places = 0;
+    let totalReturn = 0, totalStaked = 0, wins = 0, places = 0;
     const detail = races.map(race => {
       const sel     = p.picks?.[race.id];
       const hId     = sel?.horseId;
       const betType = sel?.betType || "win";
+      const isNap   = p.napRaceId === race.id;
       const horse   = race.runners.find(h => h.id === hId);
-      if (!horse) return { race, horse: null, betType, ret: { total: 0, win: 0, place: 0 } };
-      const ret = calcSelectionReturn(horse.sp, betType, horse.position, race.ewTerms);
+      if (!horse) return { race, horse: null, betType, isNap, ret: { total: 0, win: 0, place: 0, staked: betType === "ew" ? (isNap ? 4 : 2) : (isNap ? 4 : 2) } };
+      const ret = calcSelectionReturn(horse.sp, betType, horse.position, race.ewTerms, isNap);
       totalReturn += ret.total;
+      totalStaked += ret.staked;
       if (horse.position === 1) wins++;
       else if (ret.place > 0) places++;
-      return { race, horse, betType, ret };
+      return { race, horse, betType, isNap, ret };
     });
-    return { totalReturn: +totalReturn.toFixed(2), wins, places, detail };
+    return { totalReturn: +totalReturn.toFixed(2), totalStaked: +totalStaked.toFixed(2), wins, places, detail };
   }
 
   const ranked     = players.map(p => ({ ...p, ...calcPlayer(p) })).sort((a, b) => b.totalReturn - a.totalReturn);
@@ -673,7 +725,7 @@ function ResultsScreen({ challenge, playerId, isCreator, onBack }) {
         <div>
           <button className="btn btn-outline btn-sm" style={{ marginBottom: 10 }} onClick={onBack}>← Back</button>
           <div className="eyebrow">Results</div>
-          <div className="sec-title" style={{ marginBottom: 0 }}>{races.length} races · {staked} pts staked each</div>
+          <div className="sec-title" style={{ marginBottom: 0 }}>{races.length} races · 2pts per race</div>
         </div>
         {isCreator && (
           <button className="btn btn-blue btn-sm" onClick={refresh} disabled={refreshing}>
@@ -700,14 +752,15 @@ function ResultsScreen({ challenge, playerId, isCreator, onBack }) {
           <div className="pts-sub">
             {me.wins} winner{me.wins !== 1 ? "s" : ""}
             {me.places > 0 ? ` · ${me.places} placed` : ""}
-            {" "}· {staked} pts staked
+            {me.napRaceId ? " · NAP ⭐" : ""}
+            {" "}· {me.totalStaked} pts staked
           </div>
           {hasResults && (
             <div style={{ marginTop: 10, fontSize: 16, fontWeight: 600, color: me.totalReturn >= staked ? C.win : C.danger }}>
-              {me.totalReturn >= staked
-                ? `+${(me.totalReturn - staked).toFixed(2)} pts profit 🎉`
+              {me.totalReturn >= me.totalStaked
+                ? `+${(me.totalReturn - me.totalStaked).toFixed(2)} pts profit 🎉`
                 : me.totalReturn === 0 ? "No returns — better luck next time"
-                : `-${(staked - me.totalReturn).toFixed(2)} pts`}
+                : `-${(me.totalStaked - me.totalReturn).toFixed(2)} pts`}
             </div>
           )}
         </div>
@@ -730,7 +783,7 @@ function ResultsScreen({ challenge, playerId, isCreator, onBack }) {
                   {p.id === playerId ? <span style={{ color: C.muted, fontSize: 13, fontWeight: 400 }}> (you)</span> : ""}
                 </div>
                 <div style={{ fontSize: 13, color: C.muted, marginTop: 2 }}>
-                  {p.wins}W{p.places > 0 ? ` · ${p.places}P` : ""} · {staked} pts staked
+                  {p.wins}W{p.places > 0 ? ` · ${p.places}P` : ""}{p.napRaceId ? " · NAP ⭐" : ""} · {p.totalStaked} pts staked
                   {!p.picksSubmitted ? " · ⏳ pending" : ""}
                 </div>
               </div>
@@ -738,7 +791,7 @@ function ResultsScreen({ challenge, playerId, isCreator, onBack }) {
                 <div className="lb-pts">{fmtPts(p.totalReturn)}</div>
                 {hasResults && (
                   <div style={{ fontSize: 13, fontWeight: 600, color: p.totalReturn >= staked ? C.win : C.muted }}>
-                    {p.totalReturn >= staked ? `+${(p.totalReturn - staked).toFixed(2)}` : p.totalReturn === 0 ? "—" : `-${(staked - p.totalReturn).toFixed(2)}`}
+                    {p.totalReturn >= p.totalStaked ? `+${(p.totalReturn - p.totalStaked).toFixed(2)}` : p.totalReturn === 0 ? "—" : `-${(p.totalStaked - p.totalReturn).toFixed(2)}`}
                   </div>
                 )}
               </div>
@@ -788,7 +841,7 @@ function ResultsScreen({ challenge, playerId, isCreator, onBack }) {
 
       {tab === "mine" && me && (
         <div className="fade">
-          {me.detail.map(({ race, horse, betType, ret }, i) => {
+          {me.detail.map(({ race, horse, betType, isNap, ret }, i) => {
             const isWin   = horse?.position === 1;
             const isPlace = !isWin && ret.place > 0;
             const borderCol = isWin ? C.win : isPlace ? C.place : horse ? C.danger : C.border;
@@ -802,7 +855,7 @@ function ResultsScreen({ challenge, playerId, isCreator, onBack }) {
                       {horse?.sp ? <span style={{ fontWeight: 400, fontSize: 14, marginLeft: 8, opacity: .75 }}>@ {fmtSP(horse.sp)}</span> : ""}
                     </div>
                     <div style={{ fontSize: 13, color: C.muted, marginTop: 3 }}>
-                      {betType === "ew" ? "Each-Way" : "Win only"} · 2pts staked
+                      {betType === "ew" ? "Each-Way — 1pt e/w" : "Win only"} · {ret.staked} pts staked{isNap ? " (NAP ⭐)" : ""}
                       {betType === "ew" && race.ewTerms && <span style={{ marginLeft: 6 }}>({race.ewTerms.places} places, 1/{race.ewTerms.fraction})</span>}
                     </div>
                     {betType === "ew" && hasResults && horse && (
@@ -824,13 +877,13 @@ function ResultsScreen({ challenge, playerId, isCreator, onBack }) {
           })}
           <hr />
           <div style={{ textAlign: "right" }}>
-            <div style={{ color: C.muted, fontSize: 13, fontWeight: 500 }}>Total staked: {staked} pts</div>
+            <div style={{ color: C.muted, fontSize: 13, fontWeight: 500 }}>Total staked: {me.totalStaked} pts{me.napRaceId ? " (incl. NAP ⭐)" : ""}</div>
             <div style={{ fontFamily: "'DM Serif Display', serif", fontSize: 28, color: C.pink, marginTop: 4 }}>
               Returns: {fmtPts(me.totalReturn)}
             </div>
             {hasResults && (
               <div style={{ fontSize: 15, marginTop: 4, fontWeight: 600, color: me.totalReturn >= staked ? C.win : C.danger }}>
-                {me.totalReturn >= staked ? `Profit: +${(me.totalReturn - staked).toFixed(2)} pts` : `Loss: -${(staked - me.totalReturn).toFixed(2)} pts`}
+                {me.totalReturn >= me.totalStaked ? `Profit: +${(me.totalReturn - me.totalStaked).toFixed(2)} pts` : `Loss: -${(me.totalStaked - me.totalReturn).toFixed(2)} pts`}
               </div>
             )}
           </div>
