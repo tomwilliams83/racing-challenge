@@ -941,7 +941,7 @@ function ResultsScreen({ challenge, playerId, isCreator, onBack }) {
               <div style={{ textAlign: "right" }}>
                 <div className="lb-pts">{fmtPts(p.totalReturn)}</div>
                 {hasResults && (
-                  <div style={{ fontSize: 13, fontWeight: 600, color: p.totalReturn >= staked ? C.win : C.muted }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: p.totalReturn >= p.totalStaked ? C.win : C.muted }}>
                     {p.totalReturn >= p.totalStaked ? `+${(p.totalReturn - p.totalStaked).toFixed(2)}` : p.totalReturn === 0 ? "—" : `-${(p.totalStaked - p.totalReturn).toFixed(2)}`}
                   </div>
                 )}
@@ -993,16 +993,20 @@ function ResultsScreen({ challenge, playerId, isCreator, onBack }) {
       {tab === "mine" && me && (
         <div className="fade">
           {me.detail.map(({ race, horse, betType, isNap, ret }, i) => {
-            const isWin   = horse?.position === 1;
-            const isPlace = !isWin && ret.place > 0;
-            const borderCol = isWin ? C.win : isPlace ? C.place : horse ? C.danger : C.border;
+            const isWin     = horse?.position === 1;
+            const isPlace   = !isWin && ret.place > 0;
+            const isPending = horse && !race.resultIn;
+            const isLoser   = horse && race.resultIn && !isWin && !isPlace;
+            const borderCol = isWin ? C.win : isPlace ? C.place : isLoser ? C.danger : C.border;
+            const icon      = isPending ? "🕐" : isWin ? "🏆" : isPlace ? "🟣" : isLoser ? "✗" : "";
+            const nameCol   = isWin ? C.win : isPlace ? C.place : isLoser ? C.danger : C.muted;
             return (
               <div key={race.id} className="card" style={{ marginBottom: 10, borderLeft: `3px solid ${borderCol}` }}>
                 <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
                   <div>
                     <div className="eyebrow">Race {i + 1} · {race.course} {race.time}</div>
-                    <div style={{ fontSize: 16, fontWeight: 600, color: isWin ? C.win : isPlace ? C.place : horse ? C.danger : C.muted, marginTop: 4 }}>
-                      {horse ? `${isWin ? "🏆" : isPlace ? "🔵" : "✗"} ${horse.name}` : "No selection"}
+                    <div style={{ fontSize: 16, fontWeight: 600, color: nameCol, marginTop: 4 }}>
+                      {horse ? `${icon} ${horse.name}` : "No selection"}
                       {horse?.sp ? <span style={{ fontWeight: 400, fontSize: 14, marginLeft: 8, opacity: .75 }}>@ {fmtSP(horse.sp)}</span> : ""}
                     </div>
                     <div style={{ fontSize: 13, color: C.muted, marginTop: 3 }}>
