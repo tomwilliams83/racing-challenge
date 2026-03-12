@@ -296,7 +296,12 @@ function parseRacecards(data) {
     return {
       id: r.race_id || r.id || `${r.course}-${r.off}`,
       course: r.course || "Unknown",
-      time: r.off_time || r.off || r.time || "",
+      time: (t => {
+        const mm = String(t || "").match(/(\d{1,2}):(\d{2})/);
+        if (!mm) return t || "";
+        const h = parseInt(mm[1]), mn = mm[2];
+        return (h < 10 ? h + 12 : h) + ":" + mn;
+      })(r.off_time || r.off || r.time),
       name: r.race_name || r.name || "Race",
       distance: r.distance_round || r.distance || "",
       going: r.going || "",
@@ -321,7 +326,9 @@ function mergePositions(races, data) {
     const time   = (race.time || "").trim();
     return list.find(r => {
       const rc = (r.course || r.venue || r.meeting || "").toLowerCase().trim();
-      const rt = (r.off_time || r.time || r.off || "").trim().substring(0, 5);
+      const rawT = (r.off_time || r.time || r.off || "").trim().substring(0, 5);
+      const tm = rawT.match(/(\d{1,2}):(\d{2})/);
+      const rt = tm ? String(parseInt(tm[1]) < 10 ? parseInt(tm[1]) + 12 : parseInt(tm[1])) + ":" + tm[2] : rawT;
       return rc.includes(course) || course.includes(rc) ? rt === time : false;
     });
   }
@@ -364,7 +371,10 @@ function raceTimeToDate(timeStr, day) {
   if (!timeStr) return null;
   const m = String(timeStr).match(/(\d{1,2}):(\d{2})/);
   if (!m) return null;
-  const hours = parseInt(m[1]), mins = parseInt(m[2]);
+  let hours = parseInt(m[1]), mins = parseInt(m[2]);
+  // API returns 12-hour format without AM/PM — UK races run ~10:00-22:00
+  // so any hour < 10 must be PM (e.g. "2:40" = 14:40, "9:50" = 9:50am is fine)
+  if (hours < 10) hours += 12;
   // Get date string in UK timezone (handles BST/GMT automatically)
   const base = new Date();
   if (day === "tomorrow") base.setDate(base.getDate() + 1);
