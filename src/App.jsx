@@ -5,7 +5,7 @@ function getEWTerms(numRunners, isHandicap) {
   if (numRunners <= 4) return null;
   if (numRunners <= 7) return { places: 2, fraction: 4 };
   if (numRunners <= 15) return { places: 3, fraction: 4 };
-  return { places: isHandicap ? 4 : 3, fraction: 4 };
+  return { places: 4, fraction: 4 };
 }
 
 // ─── THEME ───────────────────────────────────────────────────────────────────
@@ -169,6 +169,22 @@ const GLOBAL_CSS = `
   .btn-nap-off { background: ${C.bg}; border: 1.5px solid ${C.border}; color: ${C.muted}; padding: 7px 16px; border-radius: 20px; font-size: 13px; font-weight: 600; cursor: pointer; font-family: 'DM Sans',sans-serif; transition: all .15s; }
   .btn-nap-off:hover { border-color: #ff8c00; color: #ff8c00; }
   .hbtn.nap-outline { outline: 3px solid #ff8c00; outline-offset: 2px; }
+
+  .sp-entry-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
+  @media(max-width:500px){ .sp-entry-grid { grid-template-columns: 1fr; } }
+  .sp-row { display: flex; align-items: center; gap: 8px; background: ${C.bg}; border: 1.5px solid ${C.border}; border-radius: 10px; padding: 8px 12px; }
+  .sp-row.winner { border-color: ${C.win}; background: ${C.winLt}; }
+  .sp-row.placed { border-color: ${C.placeBorder}; background: ${C.placeLt}; }
+  .sp-horse { flex: 1; font-size: 14px; font-weight: 600; }
+  .sp-inp { width: 80px; background: #fff; border: 1.5px solid ${C.border}; border-radius: 7px; padding: 5px 8px; font-family: 'DM Sans', sans-serif; font-size: 14px; font-weight: 600; text-align: center; color: ${C.text}; flex-shrink: 0; }
+  .sp-inp:focus { outline: none; border-color: ${C.pink}; }
+  .sp-inp::placeholder { color: ${C.mutedLt}; font-weight: 400; }
+  .pos-badge { display: inline-block; width: 24px; height: 24px; border-radius: 50%; font-size: 12px; font-weight: 700; text-align: center; line-height: 24px; flex-shrink: 0; }
+  .pos-1 { background: #ffd700; color: #7a5500; }
+  .pos-2 { background: #c0c0c0; color: #444; }
+  .pos-3 { background: #cd7f32; color: #fff; }
+  .pos-n { background: ${C.border}; color: ${C.muted}; }
+  .sp-section { background: #fff8ee; border: 1.5px solid #ffb700; border-radius: 12px; padding: 14px 16px; margin-bottom: 16px; }
 `;
 
 // ─── UTILITIES ────────────────────────────────────────────────────────────────
@@ -271,7 +287,8 @@ function parseRacecards(data) {
   });
 }
 
-function mergeResults(races, data) {
+// Merge positions only from API (no SP available on free plan)
+function mergePositions(races, data) {
   const list = data.results || (Array.isArray(data) ? data : []);
   const byId = {};
   list.forEach(r => { byId[r.race_id || r.id] = r; });
@@ -279,12 +296,29 @@ function mergeResults(races, data) {
     const res = byId[race.id];
     if (!res) return race;
     const runners = race.runners.map(h => {
-      const rh = (res.runners || []).find(x => (x.horse_id || x.id) === h.id || x.horse === h.name);
+      const rh = (res.runners || []).find(x =>
+        (x.horse_id || x.id) === h.id || 
+        (x.horse || x.name || '').toLowerCase() === h.name.toLowerCase()
+      );
       if (!rh) return h;
       const position = rh.position ? parseInt(rh.position) : null;
-      return { ...h, sp: rh.sp || rh.starting_price || null, position: isNaN(position) ? null : position, win: position === 1 };
+      return { ...h, position: isNaN(position) ? null : position, win: position === 1 };
     });
     return { ...race, runners, ewTerms: getEWTerms(runners.length, race.isHandicap), resultIn: true };
+  });
+}
+
+// Apply manually entered SPs to races
+function applySPs(races, spMap) {
+  // spMap: { raceId: { horseId: "5/1", ... } }
+  return races.map(race => {
+    const raceSpMap = spMap[race.id];
+    if (!raceSpMap) return race;
+    const runners = race.runners.map(h => ({
+      ...h,
+      sp: raceSpMap[h.id] !== undefined ? raceSpMap[h.id] : h.sp,
+    }));
+    return { ...race, runners };
   });
 }
 
@@ -660,17 +694,45 @@ function PicksScreen({ challenge, playerId, onSubmit, onBack }) {
 }
 
 // ── RESULTS ───────────────────────────────────────────────────────────────────
+// Parse "HH:MM" off time into today's Date object
+function offTimeToDate(timeStr, day) {
+  if (!timeStr) return null;
+  const m = String(timeStr).match(/(\d{1,2}):(\d{2})/);
+  if (!m) return null;
+  const base = day === "tomorrow"
+    ? new Date(Date.now() + 86400000)
+    : new Date();
+  base.setHours(parseInt(m[1]), parseInt(m[2]), 0, 0);
+  return base;
+}
+
+// Return ms until the next scheduled fetch for a race, or null if all done
+function msUntilNextFetch(offTime, day, resultIn) {
+  if (resultIn) return null; // already have result
+  const off = offTimeToDate(offTime, day);
+  if (!off) return null;
+  const now = Date.now();
+  const delaysMs = [10, 12, 14, 16].map(m => m * 60 * 1000);
+  for (const d of delaysMs) {
+    const t = off.getTime() + d;
+    if (t > now) return t - now; // next future trigger
+  }
+  return null; // all four windows have passed
+}
+
 function ResultsScreen({ challenge, playerId, isCreator, onBack }) {
   const [ch,         setCh]     = useState(challenge);
   const [tab,        setTab]    = useState("board");
   const [refreshing, setRef]    = useState(false);
   const [err,        setErr]    = useState("");
   const [toast,      showToast] = useToast();
+  // spInputs: { raceId: { horseId: "5/1" } } — creator's manual SP entries
+  const [spInputs,   setSpInputs] = useState({});
 
   const races   = ch.selectedRaces || [];
   const players = Object.values(ch.players || {});
-  // staked is now per-player (NAP adds extra pts)
 
+  // Poll localStorage for changes from other users
   useEffect(() => {
     const t = setInterval(() => {
       const fresh = dbGet(ch.code);
@@ -687,7 +749,7 @@ function ResultsScreen({ challenge, playerId, isCreator, onBack }) {
       const betType = sel?.betType || "win";
       const isNap   = p.napRaceId === race.id;
       const horse   = race.runners.find(h => h.id === hId);
-      if (!horse) return { race, horse: null, betType, isNap, ret: { total: 0, win: 0, place: 0, staked: betType === "ew" ? (isNap ? 4 : 2) : (isNap ? 4 : 2) } };
+      if (!horse) return { race, horse: null, betType, isNap, ret: { total: 0, win: 0, place: 0, staked: isNap ? 4 : 2 } };
       const ret = calcSelectionReturn(horse.sp, betType, horse.position, race.ewTerms, isNap);
       totalReturn += ret.total;
       totalStaked += ret.staked;
@@ -702,21 +764,56 @@ function ResultsScreen({ challenge, playerId, isCreator, onBack }) {
   const me         = ranked.find(p => p.id === playerId);
   const hasResults = races.some(r => r.runners.some(h => h.sp));
 
-  async function refresh() {
+  // Pull positions from API (no SPs available on free plan)
+  async function fetchPositions() {
     setRef(true); setErr("");
     try {
-      const date = ch.day === "tomorrow"
-        ? new Date(Date.now() + 86400000).toISOString().substring(0, 10)
-        : new Date().toISOString().substring(0, 10);
-      const data  = await apiGet(`/api/results?date=${date}`);
+      const data  = await apiGet(`/api/results`);
       const fresh = dbGet(ch.code) || ch;
-      fresh.selectedRaces = mergeResults(fresh.selectedRaces || races, data);
+      fresh.selectedRaces = mergePositions(fresh.selectedRaces || races, data);
       dbSet(fresh.code, fresh);
       setCh({ ...fresh });
-      showToast("Results updated! 🏆");
+      showToast("Positions loaded — please enter SPs below 📝");
     } catch (e) { setErr(e.message); }
     setRef(false);
   }
+
+  // Save manually entered SPs
+  function saveSPs() {
+    const fresh = dbGet(ch.code) || ch;
+    fresh.selectedRaces = applySPs(fresh.selectedRaces || races, spInputs);
+    dbSet(fresh.code, fresh);
+    setCh({ ...fresh });
+    showToast("SPs saved! 🏆");
+    setSpInputs({});
+  }
+
+  function setSpInput(raceId, horseId, val) {
+    setSpInputs(prev => ({
+      ...prev,
+      [raceId]: { ...(prev[raceId] || {}), [horseId]: val }
+    }));
+  }
+
+  // For each race, which horses need an SP entered?
+  // = winner always + any placed horses (for EW bets)
+  function getSpNeeded(race) {
+    if (!race.resultIn) return [];
+    const maxPlace = race.ewTerms?.places || 1;
+    return race.runners
+      .filter(h => h.position && h.position >= 1 && h.position <= maxPlace)
+      .sort((a, b) => a.position - b.position);
+  }
+
+  // Show a human-readable countdown to next auto-fetch
+  function fmtNextFetch(ms) {
+    if (!ms || ms <= 0) return null;
+    const mins = Math.floor(ms / 60000);
+    const secs = Math.floor((ms % 60000) / 1000);
+    if (mins > 0) return `~${mins}m`;
+    return `${secs}s`;
+  }
+  const pendingCount = races.filter(r => !r.resultIn).length;
 
   return (
     <div style={{ paddingTop: 22 }} className="fade">
@@ -728,19 +825,73 @@ function ResultsScreen({ challenge, playerId, isCreator, onBack }) {
           <div className="sec-title" style={{ marginBottom: 0 }}>{races.length} races · 2pts per race</div>
         </div>
         {isCreator && (
-          <button className="btn btn-blue btn-sm" onClick={refresh} disabled={refreshing}>
-            {refreshing ? "Refreshing…" : "🔄 Refresh SPs"}
+          <button className="btn btn-blue btn-sm" onClick={fetchPositions} disabled={refreshing}>
+            {refreshing ? "Loading…" : "🏁 Load Results"}
           </button>
         )}
       </div>
 
       {err && <div className="err" style={{ marginBottom: 14 }}>{err}</div>}
 
-      {!hasResults && (
+      {/* SP Entry section — shown to creator once positions are loaded */}
+      {isCreator && races.some(r => r.resultIn) && (
+        <div className="sp-section">
+          <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 4 }}>
+            📝 Enter Starting Prices
+          </div>
+          <div style={{ color: "#b36000", fontSize: 13, marginBottom: 14 }}>
+            Enter the SP for the winner (and placed horses where EW bets were taken). Use fractional format e.g. <strong>5/1</strong>, <strong>11/4</strong>, or <strong>Evs</strong>.
+          </div>
+          {races.filter(r => r.resultIn).map(race => {
+            const needed = getSpNeeded(race);
+            if (!needed.length) return null;
+            return (
+              <div key={race.id} style={{ marginBottom: 14 }}>
+                <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 6 }}>
+                  <span className="time-badge">{race.time}</span>{race.course}
+                </div>
+                {needed.map(h => {
+                  const posClass = h.position === 1 ? "winner" : "placed";
+                  const posLabel = h.position === 1 ? "1" : h.position === 2 ? "2" : h.position === 3 ? "3" : String(h.position);
+                  const posCircle = h.position <= 3 ? `pos-${h.position}` : "pos-n";
+                  const currentSP = h.sp || (spInputs[race.id]?.[h.id] ?? "");
+                  return (
+                    <div key={h.id} className={`sp-row ${posClass}`} style={{ marginBottom: 6 }}>
+                      <span className={`pos-badge ${posCircle}`}>{posLabel}</span>
+                      <span className="sp-horse">{h.name}</span>
+                      {h.sp
+                        ? <span style={{ fontSize: 13, fontWeight: 700, color: C.win }}>✓ {h.sp}</span>
+                        : <input
+                            className="sp-inp"
+                            placeholder="e.g. 5/1"
+                            value={spInputs[race.id]?.[h.id] || ""}
+                            onChange={e => setSpInput(race.id, h.id, e.target.value)}
+                          />
+                      }
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })}
+          {races.some(r => r.resultIn) && (
+            <button className="btn btn-pink" style={{ marginTop: 4 }} onClick={saveSPs}
+              disabled={!races.filter(r => r.resultIn).some(race =>
+                getSpNeeded(race).some(h => !h.sp && spInputs[race.id]?.[h.id])
+              )}>
+              Save SPs &amp; Calculate Returns
+            </button>
+          )}
+        </div>
+      )}
+
+      {!races.some(r => r.resultIn) && (
         <div className="card" style={{ textAlign: "center", marginBottom: 20 }}>
           <div style={{ fontSize: 36, marginBottom: 8 }}>⏳</div>
           <div style={{ color: C.muted, lineHeight: 1.65, fontWeight: 500 }}>
-            {isCreator ? "Once races are run, hit 'Refresh SPs' to pull official Starting Prices." : "Waiting for the creator to load results after racing."}
+            {isCreator
+              ? "Once races are run, hit 'Load Results' to pull finishing positions, then enter SPs manually."
+              : "Waiting for the organiser to load results and enter SPs."}
           </div>
         </div>
       )}
@@ -756,7 +907,7 @@ function ResultsScreen({ challenge, playerId, isCreator, onBack }) {
             {" "}· {me.totalStaked} pts staked
           </div>
           {hasResults && (
-            <div style={{ marginTop: 10, fontSize: 16, fontWeight: 600, color: me.totalReturn >= staked ? C.win : C.danger }}>
+            <div style={{ marginTop: 10, fontSize: 16, fontWeight: 600, color: me.totalReturn >= me.totalStaked ? C.win : C.danger }}>
               {me.totalReturn >= me.totalStaked
                 ? `+${(me.totalReturn - me.totalStaked).toFixed(2)} pts profit 🎉`
                 : me.totalReturn === 0 ? "No returns — better luck next time"
@@ -882,7 +1033,7 @@ function ResultsScreen({ challenge, playerId, isCreator, onBack }) {
               Returns: {fmtPts(me.totalReturn)}
             </div>
             {hasResults && (
-              <div style={{ fontSize: 15, marginTop: 4, fontWeight: 600, color: me.totalReturn >= staked ? C.win : C.danger }}>
+              <div style={{ fontSize: 15, marginTop: 4, fontWeight: 600, color: me.totalReturn >= me.totalStaked ? C.win : C.danger }}>
                 {me.totalReturn >= me.totalStaked ? `Profit: +${(me.totalReturn - me.totalStaked).toFixed(2)} pts` : `Loss: -${(me.totalStaked - me.totalReturn).toFixed(2)} pts`}
               </div>
             )}
