@@ -11,8 +11,7 @@ export default async function handler(req, res) {
   if (!user || !pass) return res.status(500).json({ error: 'API credentials not configured' });
 
   try {
-    // Free plan only supports results/today — no date filter available
-    const url = `https://api.theracingapi.com/v1/results/today`;
+    const url = `https://api.theracingapi.com/v1/results/today/free`;
     const response = await fetch(url, {
       headers: {
         Authorization: 'Basic ' + Buffer.from(`${user}:${pass}`).toString('base64'),
