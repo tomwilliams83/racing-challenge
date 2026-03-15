@@ -13,38 +13,26 @@ const fbApp = initializeApp(firebaseConfig);
 const db    = getDatabase(fbApp);
 
 // Firebase stores arrays as objects with numeric keys — normalise on read
+function toArr(val) {
+  // Firebase converts arrays to {0:.., 1:..} objects — convert back
+  if (!val) return [];
+  if (Array.isArray(val)) return val;
+  return Object.keys(val).sort((a,b) => Number(a)-Number(b)).map(k => val[k]).filter(Boolean);
+}
+
 function normaliseChallenge(data) {
   if (!data) return data;
   const ch = { ...data };
-  // Convert selectedRaces object back to array
-  if (ch.selectedRaces && !Array.isArray(ch.selectedRaces)) {
-    ch.selectedRaces = Object.values(ch.selectedRaces);
-  }
-  // Normalise each race's runners array and ensure numeric positions
-  if (ch.selectedRaces) {
-    ch.selectedRaces = ch.selectedRaces.map(race => {
-      if (!race) return race;
-      const r = { ...race };
-      if (r.runners && !Array.isArray(r.runners)) {
-        r.runners = Object.values(r.runners);
-      }
-      if (r.runners) {
-        r.runners = r.runners.map(h => ({
-          ...h,
-          position: h.position != null ? parseInt(h.position) : null,
-        }));
-      }
-      return r;
-    });
-  }
-  // Convert players object (should already be object, but ensure picks are intact)
-  if (ch.players) {
-    Object.values(ch.players).forEach(p => {
-      if (p.picks && !Array.isArray(p.picks)) {
-        // picks is already an object keyed by raceId — fine
-      }
-    });
-  }
+  // Normalise selectedRaces array + runners arrays + numeric positions + keep sp
+  ch.selectedRaces = toArr(ch.selectedRaces).map(race => {
+    if (!race) return null;
+    const runners = toArr(race.runners).map(h => ({
+      ...h,
+      position: h.position != null && h.position !== "" ? parseInt(h.position) : null,
+      sp: h.sp || null,
+    }));
+    return { ...race, runners };
+  }).filter(Boolean);
   return ch;
 }
 
@@ -386,39 +374,60 @@ function parseRacecards(data) {
 }
 
 // Merge positions only from API (no SP available on free plan)
-function mergePositions(races, data) {
-  const list = data.results || (Array.isArray(data) ? data : []);
+function normTime(t) {
+  // Convert any time string to 24hr "HH:MM" for comparison
+  if (!t) return "";
+  const m = String(t).trim().match(/(\d{1,2}):(\d{2})/);
+  if (!m) return "";
+  const h = parseInt(m[1]);
+  return `${h < 10 ? h + 12 : h}:${m[2]}`;
+}
 
-  // Match result to racecard: try ID first, then course+time as fallback
+function normCourse(c) {
+  return (c || "").toLowerCase().replace(/[^a-z]/g, "");
+}
+
+function mergePositions(races, data) {
+  const list = toArr(data.results || (Array.isArray(data) ? data : []));
+  console.log(`mergePositions: ${races.length} races, ${list.length} results from API`);
+
+  // Pre-normalise API results for matching
+  const normList = list.map(r => ({
+    ...r,
+    _course: normCourse(r.course || r.venue || r.meeting || ""),
+    _time:   normTime(r.off_time || r.time || r.off || ""),
+    runners: toArr(r.runners),
+  }));
+
   function findResult(race) {
-    // Direct ID match
-    let res = list.find(r => (r.race_id || r.id) === race.id);
-    if (res) return res;
-    // Fallback: match on course name + off time (both normalised to lowercase)
-    const course = (race.course || "").toLowerCase().trim();
-    const time   = (race.time || "").trim();
-    return list.find(r => {
-      const rc = (r.course || r.venue || r.meeting || "").toLowerCase().trim();
-      const rawT = (r.off_time || r.time || r.off || "").trim().substring(0, 5);
-      const tm = rawT.match(/(\d{1,2}):(\d{2})/);
-      const rt = tm ? String(parseInt(tm[1]) < 10 ? parseInt(tm[1]) + 12 : parseInt(tm[1])) + ":" + tm[2] : rawT;
-      return rc.includes(course) || course.includes(rc) ? rt === time : false;
-    });
+    const rCourse = normCourse(race.course);
+    const rTime   = normTime(race.time);
+    // 1. Direct ID match
+    let res = normList.find(r => (r.race_id || r.id) === race.id);
+    if (res) { console.log(`  Matched ${race.course} ${race.time} by ID`); return res; }
+    // 2. Course + time match
+    res = normList.find(r => r._time === rTime && (r._course.includes(rCourse) || rCourse.includes(r._course)));
+    if (res) { console.log(`  Matched ${race.course} ${race.time} by course+time`); return res; }
+    // 3. Course-only match (handles slight time differences)
+    const courseMatches = normList.filter(r => r._course.includes(rCourse) || rCourse.includes(r._course));
+    if (courseMatches.length === 1) { console.log(`  Matched ${race.course} ${race.time} by course only (1 result)`); return courseMatches[0]; }
+    console.log(`  No match for ${race.course} ${race.time} (rCourse=${rCourse} rTime=${rTime})`);
+    if (courseMatches.length) console.log(`  Course matches:`, courseMatches.map(r => `${r._course} ${r._time}`));
+    return null;
   }
 
   return races.map(race => {
     const res = findResult(race);
-    if (!res) return race; // result not in yet — leave unchanged
+    if (!res) return race;
     const runners = race.runners.map(h => {
-      const rh = (res.runners || []).find(x =>
+      const hName = h.name.toLowerCase().replace(/[^a-z]/g, "");
+      const rh = res.runners.find(x =>
         (x.horse_id || x.id) === h.id ||
-        (x.horse || x.name || "").toLowerCase().replace(/[^a-z]/g, "") ===
-          h.name.toLowerCase().replace(/[^a-z]/g, "")
+        (x.horse || x.name || "").toLowerCase().replace(/[^a-z]/g, "") === hName
       );
       if (!rh) return h;
-      const position = rh.position != null ? parseInt(rh.position) : null;
-      const pos = (position !== null && !isNaN(position)) ? position : null;
-      return { ...h, position: pos, win: pos === 1 };
+      const pos = rh.position != null && rh.position !== "" ? parseInt(rh.position) : null;
+      return { ...h, position: isNaN(pos) ? null : pos, win: pos === 1 };
     });
     return { ...race, runners, ewTerms: getEWTerms(runners.length, race.isHandicap), resultIn: true };
   });
@@ -1065,26 +1074,33 @@ function ResultsScreen({ challenge, playerId, isCreator, onBack }) {
 
   // Auto-fetch results every 60s while any races are still pending
   useEffect(() => {
-    const pending = races.filter(r => !r.resultIn);
-    if (!pending.length) return; // all done
+    const pendingRaces = (ch.selectedRaces || []).filter(r => !r.resultIn);
+    if (!pendingRaces.length) return;
+    let cancelled = false;
     const run = async () => {
+      if (cancelled) return;
       try {
         const data  = await apiGet(`/api/results`);
+        if (cancelled) return;
         const fresh = (await dbGet(ch.code)) || ch;
-        const updated  = mergePositions(fresh.selectedRaces || races, data);
+        if (cancelled) return;
+        const updated  = mergePositions(fresh.selectedRaces || [], data);
         const newCount = updated.filter(r => r.resultIn).length;
-        const oldCount = (fresh.selectedRaces || races).filter(r => r.resultIn).length;
+        const oldCount = (fresh.selectedRaces || []).filter(r => r.resultIn).length;
         if (newCount > oldCount) {
           fresh.selectedRaces = updated;
           await dbSet(fresh.code, fresh);
-          showToast(`${newCount - oldCount} result${newCount - oldCount !== 1 ? "s" : ""} in — enter SPs below 📝`);
+          if (!cancelled) {
+            setCh(prev => ({ ...prev, selectedRaces: updated }));
+            showToast(`${newCount - oldCount} result${newCount - oldCount !== 1 ? "s" : ""} in — enter SPs below 📝`);
+          }
         }
-      } catch {}
+      } catch (e) { console.warn("Auto-fetch error:", e.message); }
     };
-    run(); // immediate first check
+    run();
     const interval = setInterval(run, 60000);
-    return () => clearInterval(interval);
-  }, [ch.code, races.filter(r => !r.resultIn).length]);
+    return () => { cancelled = true; clearInterval(interval); };
+  }, [ch.code]);
 
   function calcPlayer(p) {
     let totalReturn = 0, totalStaked = 0, wins = 0, places = 0;
@@ -1123,8 +1139,11 @@ function ResultsScreen({ challenge, playerId, isCreator, onBack }) {
     });
     // Apply to latest ch from Firebase
     const fresh = (await dbGet(ch.code)) || ch;
-    fresh.selectedRaces = applySPs(fresh.selectedRaces || races, cleanInputs);
+    const updatedRaces = applySPs(fresh.selectedRaces || races, cleanInputs);
+    fresh.selectedRaces = updatedRaces;
     await dbSet(fresh.code, fresh);
+    // Also update local state immediately so UI reflects change without waiting for listener
+    setCh(prev => ({ ...prev, selectedRaces: updatedRaces }));
     showToast("SPs saved! 🏆");
     setSpInputs({});
   }
