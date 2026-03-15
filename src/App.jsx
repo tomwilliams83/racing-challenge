@@ -1129,11 +1129,12 @@ function ResultsScreen({ challenge, playerId, isCreator, onBack }) {
 
   // Save manually entered SPs
   async function saveSPs() {
-    // Trim inputs and filter empties
+    // Trim inputs, filter empties and strip _edit flags
     const cleanInputs = {};
     Object.entries(spInputs).forEach(([raceId, horses]) => {
       const clean = {};
       Object.entries(horses).forEach(([hId, val]) => {
+        if (hId.endsWith("_edit")) return; // skip edit flags
         const v = String(val || "").trim();
         if (v) clean[hId] = v;
       });
@@ -1322,7 +1323,12 @@ function ResultsScreen({ challenge, playerId, isCreator, onBack }) {
           {races.some(r => r.resultIn) && (
             <button className="btn btn-pink" style={{ marginTop: 4 }} onClick={saveSPs}
               disabled={!races.filter(r => r.resultIn).some(race =>
-                getSpNeeded(race).some(h => spInputs[race.id]?.[h.id] && !spInputs[race.id]?.[h.id + "_edit"])
+                getSpNeeded(race).some(h => {
+                  const val = spInputs[race.id]?.[h.id];
+                  const editing = spInputs[race.id]?.[h.id + "_edit"];
+                  // Enable if: new SP entered, OR editing an existing SP with a new value
+                  return val && val !== true && (editing ? val !== h.sp : !h.sp);
+                })
               )}>
               Save SPs &amp; Calculate Returns
             </button>
