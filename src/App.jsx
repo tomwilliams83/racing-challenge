@@ -388,31 +388,33 @@ function normCourse(c) {
 }
 
 function mergePositions(races, data) {
-  const list = toArr(data.results || (Array.isArray(data) ? data : []));
-  console.log(`mergePositions: ${races.length} races, ${list.length} results from API`);
+  const allResults = toArr(data.results || (Array.isArray(data) ? data : []));
 
-  // Pre-normalise API results for matching
-  const normList = list.map(r => ({
+  // Filter to UK/Irish results only — same whitelist as racecards
+  const list = allResults.filter(r => isUKIrish(r.course || r.venue || "")).map(r => ({
     ...r,
-    _course: normCourse(r.course || r.venue || r.meeting || ""),
-    _time:   normTime(r.off_time || r.time || r.off || ""),
-    runners: toArr(r.runners),
+    _course:  normCourse(r.course || r.venue || ""),
+    // Results API uses 'off' field for time, not 'off_time'
+    _time:    normTime(r.off || r.off_time || r.time || ""),
+    runners:  toArr(r.runners),
   }));
+
+  console.log(`mergePositions: ${races.length} challenge races, ${allResults.length} total API results, ${list.length} UK/Irish`);
+  console.log("UK/Irish results:", list.map(r => `${r.course} ${r._time}`));
 
   function findResult(race) {
     const rCourse = normCourse(race.course);
     const rTime   = normTime(race.time);
     // 1. Direct ID match
-    let res = normList.find(r => (r.race_id || r.id) === race.id);
-    if (res) { console.log(`  Matched ${race.course} ${race.time} by ID`); return res; }
-    // 2. Course + time match
-    res = normList.find(r => r._time === rTime && (r._course.includes(rCourse) || rCourse.includes(r._course)));
-    if (res) { console.log(`  Matched ${race.course} ${race.time} by course+time`); return res; }
-    // 3. Course-only match (handles slight time differences)
-    const courseMatches = normList.filter(r => r._course.includes(rCourse) || rCourse.includes(r._course));
-    if (courseMatches.length === 1) { console.log(`  Matched ${race.course} ${race.time} by course only (1 result)`); return courseMatches[0]; }
-    console.log(`  No match for ${race.course} ${race.time} (rCourse=${rCourse} rTime=${rTime})`);
-    if (courseMatches.length) console.log(`  Course matches:`, courseMatches.map(r => `${r._course} ${r._time}`));
+    let res = list.find(r => (r.race_id || r.id) === race.id);
+    if (res) { console.log(`  ✅ ${race.course} ${race.time} matched by ID`); return res; }
+    // 2. Course + time
+    res = list.find(r => r._time === rTime && (r._course.includes(rCourse) || rCourse.includes(r._course)));
+    if (res) { console.log(`  ✅ ${race.course} ${race.time} matched by course+time`); return res; }
+    // 3. Course only (single match)
+    const cm = list.filter(r => r._course.includes(rCourse) || rCourse.includes(r._course));
+    if (cm.length === 1) { console.log(`  ✅ ${race.course} ${race.time} matched by course only`); return cm[0]; }
+    console.log(`  ❌ No match for ${race.course} ${race.time}`);
     return null;
   }
 
