@@ -12,10 +12,46 @@ const firebaseConfig = {
 const fbApp = initializeApp(firebaseConfig);
 const db    = getDatabase(fbApp);
 
+// Firebase stores arrays as objects with numeric keys — normalise on read
+function normaliseChallenge(data) {
+  if (!data) return data;
+  const ch = { ...data };
+  // Convert selectedRaces object back to array
+  if (ch.selectedRaces && !Array.isArray(ch.selectedRaces)) {
+    ch.selectedRaces = Object.values(ch.selectedRaces);
+  }
+  // Normalise each race's runners array and ensure numeric positions
+  if (ch.selectedRaces) {
+    ch.selectedRaces = ch.selectedRaces.map(race => {
+      if (!race) return race;
+      const r = { ...race };
+      if (r.runners && !Array.isArray(r.runners)) {
+        r.runners = Object.values(r.runners);
+      }
+      if (r.runners) {
+        r.runners = r.runners.map(h => ({
+          ...h,
+          position: h.position != null ? parseInt(h.position) : null,
+        }));
+      }
+      return r;
+    });
+  }
+  // Convert players object (should already be object, but ensure picks are intact)
+  if (ch.players) {
+    Object.values(ch.players).forEach(p => {
+      if (p.picks && !Array.isArray(p.picks)) {
+        // picks is already an object keyed by raceId — fine
+      }
+    });
+  }
+  return ch;
+}
+
 async function dbGet(code) {
   try {
     const snap = await get(ref(db, `challenges/${code}`));
-    return snap.exists() ? snap.val() : null;
+    return snap.exists() ? normaliseChallenge(snap.val()) : null;
   } catch { return null; }
 }
 async function dbSet(code, val) {
@@ -23,7 +59,7 @@ async function dbSet(code, val) {
 }
 function dbListen(code, cb) {
   const r = ref(db, `challenges/${code}`);
-  onValue(r, snap => { if (snap.exists()) cb(snap.val()); });
+  onValue(r, snap => { if (snap.exists()) cb(normaliseChallenge(snap.val())); });
   return () => off(r);
 }
 
@@ -803,7 +839,15 @@ function PicksScreen({ challenge, playerId, onSubmit, onBack, editMode = false }
     setNapId(prev => prev === raceId ? null : raceId);
   }
 
+  const [napWarning, setNapWarning] = useState(false);
+
   async function save() {
+    // Prompt for NAP if not set and not already submitted
+    if (!napId && !submitted) {
+      setNapWarning(true);
+      return;
+    }
+    setNapWarning(false);
     setSaving(true);
     const fresh = (await dbGet(challenge.code)) || challenge;
     const updatedPlayer = { ...player, picks, napRaceId: napId, picksSubmitted: true };
@@ -959,6 +1003,22 @@ function PicksScreen({ challenge, playerId, onSubmit, onBack, editMode = false }
 
       {isEditing && (
         <div style={{ textAlign: "center", marginTop: 20, marginBottom: 24 }}>
+          {napWarning && (
+            <div className="card" style={{ background: "#fff8ee", borderColor: "#ffb700", marginBottom: 14, textAlign: "left" }}>
+              <div style={{ fontWeight: 700, color: "#b36000", marginBottom: 6 }}>⭐ You haven't set a NAP!</div>
+              <div style={{ fontSize: 13, color: "#b36000", marginBottom: 12 }}>
+                Your NAP doubles your stake on one race. Are you sure you want to submit without one?
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button className="btn btn-outline btn-sm" onClick={() => setNapWarning(false)}>
+                  Go back & pick NAP
+                </button>
+                <button className="btn btn-pink btn-sm" onClick={async () => { setNapWarning(false); setSaving(true); const fresh = (await dbGet(challenge.code)) || challenge; const updatedPlayer = { ...player, picks, napRaceId: null, picksSubmitted: true }; fresh.players[playerId] = updatedPlayer; await dbSet(fresh.code, fresh); setSaving(false); showToast("Picks locked in! 🏁"); setTimeout(() => onSubmit(fresh, updatedPlayer), 700); }}>
+                  Submit without NAP
+                </button>
+              </div>
+            </div>
+          )}
           <button className="btn btn-pink"
             disabled={(!allPicked && !submitted) || saving}
             onClick={save}>
@@ -990,11 +1050,9 @@ function msUntilNextFetch(offTime, day, resultIn) {
 
 function ResultsScreen({ challenge, playerId, isCreator, onBack }) {
   const [ch,         setCh]     = useState(challenge);
-  const [tab,        setTab]    = useState("board");
-  const [refreshing, setRef]    = useState(false);
+  const [tab,        setTab]    = useState(null);
   const [err,        setErr]    = useState("");
   const [toast,      showToast] = useToast();
-  // spInputs: { raceId: { horseId: "5/1" } } — creator's manual SP entries
   const [spInputs,   setSpInputs] = useState({});
 
   const races   = ch.selectedRaces || [];
@@ -1004,6 +1062,29 @@ function ResultsScreen({ challenge, playerId, isCreator, onBack }) {
   useEffect(() => {
     return dbListen(ch.code, fresh => setCh(fresh));
   }, [ch.code]);
+
+  // Auto-fetch results every 60s while any races are still pending
+  useEffect(() => {
+    const pending = races.filter(r => !r.resultIn);
+    if (!pending.length) return; // all done
+    const run = async () => {
+      try {
+        const data  = await apiGet(`/api/results`);
+        const fresh = (await dbGet(ch.code)) || ch;
+        const updated  = mergePositions(fresh.selectedRaces || races, data);
+        const newCount = updated.filter(r => r.resultIn).length;
+        const oldCount = (fresh.selectedRaces || races).filter(r => r.resultIn).length;
+        if (newCount > oldCount) {
+          fresh.selectedRaces = updated;
+          await dbSet(fresh.code, fresh);
+          showToast(`${newCount - oldCount} result${newCount - oldCount !== 1 ? "s" : ""} in — enter SPs below 📝`);
+        }
+      } catch {}
+    };
+    run(); // immediate first check
+    const interval = setInterval(run, 60000);
+    return () => clearInterval(interval);
+  }, [ch.code, races.filter(r => !r.resultIn).length]);
 
   function calcPlayer(p) {
     let totalReturn = 0, totalStaked = 0, wins = 0, places = 0;
@@ -1027,28 +1108,6 @@ function ResultsScreen({ challenge, playerId, isCreator, onBack }) {
   const ranked     = players.map(p => ({ ...p, ...calcPlayer(p) })).sort((a, b) => b.totalReturn - a.totalReturn);
   const me         = ranked.find(p => p.id === playerId);
   const hasResults = races.some(r => r.runners.some(h => h.sp));
-
-  // Pull positions from API (no SPs available on free plan)
-  async function fetchPositions() {
-    setRef(true); setErr("");
-    try {
-      const data    = await apiGet(`/api/results`);
-      const fresh   = (await dbGet(ch.code)) || ch;
-      const updated = mergePositions(fresh.selectedRaces || races, data);
-      const newCount = updated.filter(r => r.resultIn).length;
-      const oldCount = (fresh.selectedRaces || races).filter(r => r.resultIn).length;
-      fresh.selectedRaces = updated;
-      await dbSet(fresh.code, fresh);
-      if (newCount > oldCount) {
-        showToast(`${newCount - oldCount} result${newCount - oldCount !== 1 ? "s" : ""} loaded — enter SPs below 📝`);
-      } else if (newCount === 0) {
-        showToast("No positions confirmed yet — try again shortly ⏳");
-      } else {
-        showToast("Results already up to date ✓");
-      }
-    } catch (e) { setErr(e.message); }
-    setRef(false);
-  }
 
   // Save manually entered SPs
   async function saveSPs() {
@@ -1103,30 +1162,34 @@ function ResultsScreen({ challenge, playerId, isCreator, onBack }) {
   }
 
   // For each race, which horses need an SP entered?
-  // Always need winner (pos 1) + any placed finishers (for EW calc)
+  // Only ask for horses where at least one player has a return on them
   function getSpNeeded(race) {
     if (!race.resultIn) return [];
-    const maxPlace = race.ewTerms?.places || 1;
-    // Check if any player went EW on this race
-    const anyEW = Object.values(ch.players || {}).some(p =>
-      p.picks?.[race.id]?.betType === "ew"
+    const players = Object.values(ch.players || {});
+    // Collect horse IDs that players actually picked in this race
+    const pickedWin = new Set(
+      players.filter(p => p.picks?.[race.id]?.betType === "win")
+             .map(p => p.picks[race.id].horseId)
     );
-    // Need winner always; need placed horses if anyone went EW
-    const limit = anyEW ? maxPlace : 1;
-    const finishers = race.runners
-      .filter(h => h.position && Number(h.position) >= 1 && Number(h.position) <= limit)
+    const pickedEW = new Set(
+      players.filter(p => p.picks?.[race.id]?.betType === "ew")
+             .map(p => p.picks[race.id].horseId)
+    );
+    const maxPlace = race.ewTerms?.places || 1;
+
+    return race.runners
+      .filter(h => {
+        const pos = Number(h.position);
+        if (!pos || pos < 1) return false;
+        // Winner picked by anyone on win or EW
+        if (pos === 1 && (pickedWin.has(h.id) || pickedEW.has(h.id))) return true;
+        // Placed horse picked EW by someone
+        if (pos > 1 && pos <= maxPlace && pickedEW.has(h.id)) return true;
+        return false;
+      })
       .sort((a, b) => Number(a.position) - Number(b.position));
-    return finishers;
   }
 
-  // Show a human-readable countdown to next auto-fetch
-  function fmtNextFetch(ms) {
-    if (!ms || ms <= 0) return null;
-    const mins = Math.floor(ms / 60000);
-    const secs = Math.floor((ms % 60000) / 1000);
-    if (mins > 0) return `~${mins}m`;
-    return `${secs}s`;
-  }
   const pendingCount = races.filter(r => !r.resultIn).length;
 
   return (
@@ -1138,10 +1201,10 @@ function ResultsScreen({ challenge, playerId, isCreator, onBack }) {
           <div className="eyebrow">Results</div>
           <div className="sec-title" style={{ marginBottom: 0 }}>{races.length} races · 2pts per race</div>
         </div>
-        {isCreator && (
-          <button className="btn btn-blue btn-sm" onClick={fetchPositions} disabled={refreshing}>
-            {refreshing ? "Loading…" : "🏁 Load Results"}
-          </button>
+        {pendingCount > 0 && (
+          <div style={{ fontSize: 12, color: C.muted, fontWeight: 500, marginTop: 4 }}>
+            <span className="live-dot" />Checking results every 60s…
+          </div>
         )}
       </div>
 
@@ -1179,14 +1242,14 @@ function ResultsScreen({ challenge, playerId, isCreator, onBack }) {
         </div>
       )}
 
-      {/* SP Entry section — shown to creator once positions are loaded */}
-      {isCreator && races.some(r => r.resultIn) && (
+      {/* SP Entry section — open to all players once positions are loaded */}
+      {races.some(r => r.resultIn) && (
         <div className="sp-section">
           <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 4 }}>
             📝 Enter Starting Prices
           </div>
           <div style={{ color: "#b36000", fontSize: 13, marginBottom: 14 }}>
-            Enter the SP for the winner (and placed horses where EW bets were taken). Use fractional format e.g. <strong>5/1</strong>, <strong>11/4</strong>, or <strong>Evs</strong>.
+            Enter the SP for each result below. Anyone can add these — use fractional format e.g. <strong>5/1</strong>, <strong>11/4</strong>, or <strong>Evs</strong>.
           </div>
           {races.filter(r => r.resultIn).map(race => {
             const needed = getSpNeeded(race);
@@ -1235,9 +1298,7 @@ function ResultsScreen({ challenge, playerId, isCreator, onBack }) {
         <div className="card" style={{ textAlign: "center", marginBottom: 20 }}>
           <div style={{ fontSize: 36, marginBottom: 8 }}>⏳</div>
           <div style={{ color: C.muted, lineHeight: 1.65, fontWeight: 500 }}>
-            {isCreator
-              ? "Once races are run, hit 'Load Results' to pull finishing positions, then enter SPs manually."
-              : "Waiting for the organiser to load results and enter SPs."}
+            "Results are checked automatically every minute — SPs can be entered by anyone once races are run."
           </div>
         </div>
       )}
@@ -1263,44 +1324,43 @@ function ResultsScreen({ challenge, playerId, isCreator, onBack }) {
         </div>
       )}
 
-      <div className="tabs">
-        {[["board","🏆 Leaderboard"],["card","📋 Race Card"],["mine","My Picks"]].map(([id, label]) => (
-          <button key={id} className={`tab${tab === id ? " on" : ""}`} onClick={() => setTab(id)}>{label}</button>
+      {/* Leaderboard — always visible at top */}
+      <div style={{ marginBottom: 20 }}>
+        {ranked.map((p, i) => (
+          <div key={p.id} className={`lb-row${i === 0 ? " p1" : ""}`}>
+            <div className="lb-rank">{i === 0 ? "🏆" : i + 1}</div>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 16, fontWeight: 600 }}>
+                {p.name}{p.id === ch.creatorId ? " 👑" : ""}
+                {p.id === playerId ? <span style={{ color: C.muted, fontSize: 13, fontWeight: 400 }}> (you)</span> : ""}
+              </div>
+              <div style={{ fontSize: 13, color: C.muted, marginTop: 2 }}>
+                {p.wins}W{p.places > 0 ? ` · ${p.places}P` : ""}{p.napRaceId ? " · NAP ⭐" : ""} · {p.totalStaked} pts staked
+                {!p.picksSubmitted ? " · ⏳ pending" : ""}
+              </div>
+            </div>
+            <div style={{ textAlign: "right" }}>
+              <div className="lb-pts">{fmtPts(p.totalReturn)}</div>
+              {hasResults && (
+                <div style={{ fontSize: 13, fontWeight: 600, color: p.totalReturn >= p.totalStaked ? C.win : C.muted }}>
+                  {p.totalReturn >= p.totalStaked ? `+${(p.totalReturn - p.totalStaked).toFixed(2)}` : p.totalReturn === 0 ? "—" : `-${(p.totalStaked - p.totalReturn).toFixed(2)}`}
+                </div>
+              )}
+            </div>
+          </div>
         ))}
       </div>
 
-      {tab === "board" && (
-        <div className="fade">
-          {ranked.map((p, i) => (
-            <div key={p.id} className={`lb-row${i === 0 ? " p1" : ""}`}>
-              <div className="lb-rank">{i === 0 ? "🏆" : i + 1}</div>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 16, fontWeight: 600 }}>
-                  {p.name}{p.id === ch.creatorId ? " 👑" : ""}
-                  {p.id === playerId ? <span style={{ color: C.muted, fontSize: 13, fontWeight: 400 }}> (you)</span> : ""}
-                </div>
-                <div style={{ fontSize: 13, color: C.muted, marginTop: 2 }}>
-                  {p.wins}W{p.places > 0 ? ` · ${p.places}P` : ""}{p.napRaceId ? " · NAP ⭐" : ""} · {p.totalStaked} pts staked
-                  {!p.picksSubmitted ? " · ⏳ pending" : ""}
-                </div>
-              </div>
-              <div style={{ textAlign: "right" }}>
-                <div className="lb-pts">{fmtPts(p.totalReturn)}</div>
-                {hasResults && (
-                  <div style={{ fontSize: 13, fontWeight: 600, color: p.totalReturn >= p.totalStaked ? C.win : C.muted }}>
-                    {p.totalReturn >= p.totalStaked ? `+${(p.totalReturn - p.totalStaked).toFixed(2)}` : p.totalReturn === 0 ? "—" : `-${(p.totalStaked - p.totalReturn).toFixed(2)}`}
-                  </div>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
+      <div className="tabs">
+        {[["card","📋 Race Card"],["mine","My Picks"]].map(([id, label]) => (
+          <button key={id} className={`tab${tab === id ? " on" : ""}`} onClick={() => setTab(tab === id ? null : id)}>{label}</button>
+        ))}
+      </div>
 
       {tab === "card" && (
         <div className="fade">
           {races.map((race, i) => {
-            const winner = race.runners.find(h => h.position === 1);
+            const winner = race.runners.find(h => parseInt(h.position) === 1);
             return (
               <div key={race.id} className="card" style={{ marginBottom: 12 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 8, marginBottom: 10 }}>
@@ -1320,12 +1380,13 @@ function ResultsScreen({ challenge, playerId, isCreator, onBack }) {
                 </div>
                 <div className="horse-grid">
                   {race.runners.map(h => {
-                    const isWin   = h.position === 1;
-                    const isPlace = !isWin && h.position && race.ewTerms && h.position <= race.ewTerms.places;
+                    const pos     = parseInt(h.position);
+                    const isWin   = pos === 1;
+                    const isPlace = !isWin && pos && race.ewTerms && pos <= race.ewTerms.places;
                     return (
                       <button key={h.id} className={`hbtn${isWin ? " won" : isPlace ? " placed" : ""}`} style={{ cursor: "default" }}>
-                        <span>{h.position ? `${h.position}. ` : ""}{h.name}{isPlace ? <span style={{ fontSize: 11, marginLeft: 4, opacity: .7 }}> P</span> : ""}</span>
-                        <span className="sp-chip">{fmtSP(h.sp)}</span>
+                        <span>{pos ? `${pos}. ` : ""}{h.name}{isPlace ? <span style={{ fontSize: 11, marginLeft: 4, opacity: .7 }}> P</span> : ""}</span>
+                        <span className="sp-chip">{h.sp ? fmtSP(h.sp) : "SP"}</span>
                       </button>
                     );
                   })}
