@@ -1284,19 +1284,34 @@ function ResultsScreen({ challenge, playerId, isCreator, onBack }) {
                   const posClass = h.position === 1 ? "winner" : "placed";
                   const posLabel = h.position === 1 ? "1" : h.position === 2 ? "2" : h.position === 3 ? "3" : String(h.position);
                   const posCircle = h.position <= 3 ? `pos-${h.position}` : "pos-n";
-                  const currentSP = h.sp || (spInputs[race.id]?.[h.id] ?? "");
+                  const isEditing = spInputs[race.id]?.[h.id + "_edit"] === true;
                   return (
                     <div key={h.id} className={`sp-row ${posClass}`} style={{ marginBottom: 6 }}>
                       <span className={`pos-badge ${posCircle}`}>{posLabel}</span>
                       <span className="sp-horse">{h.name}</span>
-                      {h.sp
-                        ? <span style={{ fontSize: 13, fontWeight: 700, color: C.win }}>✓ {h.sp}</span>
-                        : <input
-                            className="sp-inp"
-                            placeholder="e.g. 5/1"
-                            value={spInputs[race.id]?.[h.id] || ""}
-                            onChange={e => setSpInput(race.id, h.id, e.target.value)}
-                          />
+                      {h.sp && !isEditing
+                        ? <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                            <span style={{ fontSize: 13, fontWeight: 700, color: C.win }}>✓ {h.sp}</span>
+                            <button onClick={() => setSpInput(race.id, h.id + "_edit", true)}
+                              style={{ fontSize: 11, color: C.muted, background: "none", border: "none", cursor: "pointer", padding: "2px 4px", textDecoration: "underline" }}>
+                              edit
+                            </button>
+                          </span>
+                        : <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                            <input
+                              className="sp-inp"
+                              placeholder={h.sp || "e.g. 5/1"}
+                              value={spInputs[race.id]?.[h.id] || ""}
+                              onChange={e => setSpInput(race.id, h.id, e.target.value)}
+                              autoFocus={isEditing}
+                            />
+                            {isEditing && (
+                              <button onClick={() => setSpInput(race.id, h.id + "_edit", false)}
+                                style={{ fontSize: 11, color: C.muted, background: "none", border: "none", cursor: "pointer", padding: "2px 4px", textDecoration: "underline" }}>
+                                cancel
+                              </button>
+                            )}
+                          </span>
                       }
                     </div>
                   );
@@ -1307,7 +1322,7 @@ function ResultsScreen({ challenge, playerId, isCreator, onBack }) {
           {races.some(r => r.resultIn) && (
             <button className="btn btn-pink" style={{ marginTop: 4 }} onClick={saveSPs}
               disabled={!races.filter(r => r.resultIn).some(race =>
-                getSpNeeded(race).some(h => !h.sp && spInputs[race.id]?.[h.id])
+                getSpNeeded(race).some(h => spInputs[race.id]?.[h.id] && !spInputs[race.id]?.[h.id + "_edit"])
               )}>
               Save SPs &amp; Calculate Returns
             </button>
