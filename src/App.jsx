@@ -384,7 +384,8 @@ function normTime(t) {
 }
 
 function normCourse(c) {
-  return (c || "").toLowerCase().replace(/[^a-z]/g, "");
+  // Strip country suffixes e.g. "Wexford (IRE)" -> "wexford"
+  return (c || "").replace(/[(][A-Z]{2,3}[)]/g, "").toLowerCase().replace(/[^a-z]/g, "");
 }
 
 function mergePositions(races, data) {
@@ -463,6 +464,15 @@ function applySPs(races, spMap) {
       sp: raceSpMap[h.id] !== undefined ? raceSpMap[h.id] : h.sp,
     }));
     return { ...race, runners };
+  });
+}
+
+// Sort races chronologically by time
+function sortRaces(races) {
+  return [...races].sort((a, b) => {
+    const ta = (a.time || "").replace(":", "").padStart(4, "0");
+    const tb = (b.time || "").replace(":", "").padStart(4, "0");
+    return ta.localeCompare(tb);
   });
 }
 
@@ -829,7 +839,7 @@ function LobbyScreen({ challenge, playerId, onAction, onBack, deepLink }) {
 // ── PICKS ─────────────────────────────────────────────────────────────────────
 function PicksScreen({ challenge, playerId, onSubmit, onBack, editMode = false }) {
   const player    = challenge.players?.[playerId];
-  const races     = challenge.selectedRaces || [];
+  const races     = sortRaces(challenge.selectedRaces || []);
   const submitted = player?.picksSubmitted;
   const locked    = isChallengeLocked(challenge);
 
@@ -1083,7 +1093,7 @@ function ResultsScreen({ challenge, playerId, isCreator, onBack }) {
   const [toast,      showToast] = useToast();
   const [spInputs,   setSpInputs] = useState({});
 
-  const races   = ch.selectedRaces || [];
+  const races   = sortRaces(ch.selectedRaces || []);
   const players = Object.values(ch.players || {});
 
   // Real-time listener — all players see updates instantly
