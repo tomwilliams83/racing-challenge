@@ -420,21 +420,32 @@ function mergePositions(races, data) {
 
   // Strip country suffix e.g. "Horse Name (IRE)" -> "horsename"
   function stripName(n) {
-    return (n || "").replace(/\s*\([A-Z]{2,3}\)\s*$/, "").toLowerCase().replace(/[^a-z]/g, "");
+    return (n || "").replace(/[(][A-Z]{2,3}[)]/g, "").toLowerCase().replace(/[^a-z]/g, "");
   }
 
   return races.map(race => {
     const res = findResult(race);
     if (!res) return race;
+
+    // Only mark resultIn if the result actually has finishing positions
+    const hasPositions = res.runners && toArr(res.runners).some(r => r.position != null && r.position !== "");
+    if (!hasPositions) {
+      console.log(`  Skipping ${race.course} ${race.time} — result found but no positions yet`);
+      return race;
+    }
+
+    // Log what names the results API is using for this race
+    console.log(`  Result runners for ${race.course} ${race.time}:`, toArr(res.runners).slice(0,3).map(r => r.horse || r.name));
+
     const runners = race.runners.map(h => {
       const hName = stripName(h.name);
-      const rh = res.runners.find(x =>
+      const rh = toArr(res.runners).find(x =>
         (x.horse_id || x.id) === h.id ||
         stripName(x.horse || x.name || "") === hName
       );
-      if (!rh) { console.log(`  No runner match for: ${h.name} (${hName})`); return h; }
+      if (!rh) { console.log(`    No match: "${h.name}" (${hName})`); return h; }
       const pos = rh.position != null && rh.position !== "" ? parseInt(rh.position) : null;
-      console.log(`  Runner matched: ${h.name} -> position ${pos}`);
+      console.log(`    Matched: "${h.name}" -> pos ${pos}`);
       return { ...h, position: isNaN(pos) ? null : pos, win: pos === 1 };
     });
     return { ...race, runners, ewTerms: getEWTerms(runners.length, race.isHandicap), resultIn: true };
