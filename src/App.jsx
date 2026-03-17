@@ -1535,47 +1535,89 @@ function ResultsScreen({ challenge, playerId, isCreator, onBack }) {
             const isPending = horse && !race.resultIn;
             const isLoser   = horse && race.resultIn && !isWin && !isPlace;
             const borderCol = isWin ? C.win : isPlace ? C.place : isLoser ? C.danger : C.border;
-            const icon      = isPending ? "🕐" : isWin ? "🏆" : isPlace ? "🟣" : isLoser ? "✗" : "";
             const nameCol   = isWin ? C.win : isPlace ? C.place : isLoser ? C.danger : C.muted;
+
+            // Outcome label + colour
+            const outcome     = isPending ? null : isWin ? "WON" : isPlace ? "PLACED" : isLoser ? "LOST" : null;
+            const outcomeCol  = isWin ? C.win : isPlace ? C.place : C.danger;
+            const outcomeBg   = isWin ? "#f0fff4" : isPlace ? "#f5f0ff" : "#fff0f0";
+
             return (
-              <div key={race.id} className="card" style={{ marginBottom: 10, borderLeft: `3px solid ${borderCol}` }}>
-                <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
-                  <div>
-                    <div className="eyebrow">Race {i + 1} · {race.course} {race.time}</div>
-                    <div style={{ fontSize: 16, fontWeight: 600, color: nameCol, marginTop: 4 }}>
-                      {horse ? `${icon} ${horse.name}` : "No selection"}
-                      {horse?.sp ? <span style={{ fontWeight: 400, fontSize: 14, marginLeft: 8, opacity: .75 }}>@ {fmtSP(horse.sp)}</span> : ""}
-                    </div>
-                    <div style={{ fontSize: 13, color: C.muted, marginTop: 3 }}>
-                      {betType === "ew" ? "Each-Way — 1pt e/w" : "Win only"} · {ret.staked} pts staked{isNap ? " (NAP ⭐)" : ""}
-                      {betType === "ew" && race.ewTerms && <span style={{ marginLeft: 6 }}>({race.ewTerms.places} places, 1/{race.ewTerms.fraction})</span>}
-                    </div>
-                    {betType === "ew" && hasResults && horse && (
-                      <div style={{ fontSize: 13, color: C.muted, marginTop: 3 }}>
+              <div key={race.id} className="card" style={{ marginBottom: 10, borderLeft: `4px solid ${borderCol}`, padding: "16px 18px" }}>
+                {/* Header row: race info + outcome badge */}
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                  <div className="eyebrow" style={{ marginBottom: 0 }}>
+                    <span className="time-badge">{race.time}</span>{race.course}
+                    {isNap && <span className="nap-badge" style={{ marginLeft: 6 }}>NAP ⭐</span>}
+                  </div>
+                  {outcome && (
+                    <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: 1, padding: "3px 10px", borderRadius: 20, background: outcomeBg, color: outcomeCol, border: `1.5px solid ${outcomeCol}` }}>
+                      {outcome}
+                    </span>
+                  )}
+                  {isPending && (
+                    <span style={{ fontSize: 12, color: C.muted, fontWeight: 500 }}>🕐 Pending</span>
+                  )}
+                </div>
+
+                {/* Horse name + SP */}
+                <div style={{ fontSize: 17, fontWeight: 700, color: nameCol, marginBottom: 6 }}>
+                  {horse ? horse.name : "No selection"}
+                  {horse?.sp && <span style={{ fontWeight: 400, fontSize: 14, color: C.muted, marginLeft: 8 }}>@ {fmtSP(horse.sp)}</span>}
+                </div>
+
+                {/* Bet type + returns row */}
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end" }}>
+                  <div style={{ fontSize: 13, color: C.muted }}>
+                    {betType === "ew" ? "Each-Way" : "Win"} · {ret.staked}pts staked
+                    {betType === "ew" && race.ewTerms && <span> · {race.ewTerms.places} places 1/{race.ewTerms.fraction}</span>}
+                    {betType === "ew" && race.resultIn && horse && (
+                      <div style={{ marginTop: 3 }}>
                         Win: <span style={{ color: ret.win > 0 ? C.win : C.muted, fontWeight: 600 }}>{fmtPts(ret.win)}</span>
                         {" · "}Place: <span style={{ color: ret.place > 0 ? C.place : C.muted, fontWeight: 600 }}>{fmtPts(ret.place)}</span>
                       </div>
                     )}
                   </div>
-                  <div style={{ textAlign: "right" }}>
-                    <div style={{ fontSize: 12, color: C.muted, fontWeight: 500 }}>Returns</div>
-                    <div style={{ fontFamily: "'DM Serif Display', serif", fontSize: 20, color: ret.total > 0 ? C.pink : C.muted }}>
-                      {hasResults ? fmtPts(ret.total) : "—"}
-                    </div>
+                  <div style={{ textAlign: "right", flexShrink: 0, marginLeft: 12 }}>
+                    {race.resultIn ? (
+                      <>
+                        <div style={{ fontSize: 11, color: C.muted, fontWeight: 500, marginBottom: 2 }}>Returns</div>
+                        <div style={{ fontFamily: "'DM Serif Display', serif", fontSize: 22, fontWeight: 700,
+                          color: ret.total > 0 ? C.win : isLoser ? C.danger : C.muted }}>
+                          {horse?.sp ? fmtPts(ret.total) : "SP needed"}
+                        </div>
+                        {ret.total > 0 && (
+                          <div style={{ fontSize: 12, color: C.win, fontWeight: 600 }}>
+                            +{(ret.total - ret.staked).toFixed(2)} profit
+                          </div>
+                        )}
+                        {isLoser && (
+                          <div style={{ fontSize: 12, color: C.danger, fontWeight: 600 }}>
+                            -{ret.staked.toFixed(2)} pts
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <div style={{ fontSize: 13, color: C.muted }}>—</div>
+                    )}
                   </div>
                 </div>
               </div>
             );
           })}
-          <hr />
-          <div style={{ textAlign: "right" }}>
-            <div style={{ color: C.muted, fontSize: 13, fontWeight: 500 }}>Total staked: {me.totalStaked} pts{me.napRaceId ? " (incl. NAP ⭐)" : ""}</div>
-            <div style={{ fontFamily: "'DM Serif Display', serif", fontSize: 28, color: C.pink, marginTop: 4 }}>
-              Returns: {fmtPts(me.totalReturn)}
+
+          <div style={{ borderTop: `1.5px solid ${C.border}`, marginTop: 16, paddingTop: 14, textAlign: "right" }}>
+            <div style={{ color: C.muted, fontSize: 13, fontWeight: 500, marginBottom: 4 }}>
+              Total staked: {me.totalStaked} pts{me.napRaceId ? " · NAP ⭐" : ""}
             </div>
-            {hasResults && (
+            <div style={{ fontFamily: "'DM Serif Display', serif", fontSize: 28, color: C.pink }}>
+              {fmtPts(me.totalReturn)}
+            </div>
+            {hasResults && me.totalReturn > 0 && (
               <div style={{ fontSize: 15, marginTop: 4, fontWeight: 600, color: me.totalReturn >= me.totalStaked ? C.win : C.danger }}>
-                {me.totalReturn >= me.totalStaked ? `Profit: +${(me.totalReturn - me.totalStaked).toFixed(2)} pts` : `Loss: -${(me.totalStaked - me.totalReturn).toFixed(2)} pts`}
+                {me.totalReturn >= me.totalStaked
+                  ? `+${(me.totalReturn - me.totalStaked).toFixed(2)} pts profit 🎉`
+                  : `-${(me.totalStaked - me.totalReturn).toFixed(2)} pts`}
               </div>
             )}
           </div>
