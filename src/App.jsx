@@ -418,17 +418,23 @@ function mergePositions(races, data) {
     return null;
   }
 
+  // Strip country suffix e.g. "Horse Name (IRE)" -> "horsename"
+  function stripName(n) {
+    return (n || "").replace(/\s*\([A-Z]{2,3}\)\s*$/, "").toLowerCase().replace(/[^a-z]/g, "");
+  }
+
   return races.map(race => {
     const res = findResult(race);
     if (!res) return race;
     const runners = race.runners.map(h => {
-      const hName = h.name.toLowerCase().replace(/[^a-z]/g, "");
+      const hName = stripName(h.name);
       const rh = res.runners.find(x =>
         (x.horse_id || x.id) === h.id ||
-        (x.horse || x.name || "").toLowerCase().replace(/[^a-z]/g, "") === hName
+        stripName(x.horse || x.name || "") === hName
       );
-      if (!rh) return h;
+      if (!rh) { console.log(`  No runner match for: ${h.name} (${hName})`); return h; }
       const pos = rh.position != null && rh.position !== "" ? parseInt(rh.position) : null;
+      console.log(`  Runner matched: ${h.name} -> position ${pos}`);
       return { ...h, position: isNaN(pos) ? null : pos, win: pos === 1 };
     });
     return { ...race, runners, ewTerms: getEWTerms(runners.length, race.isHandicap), resultIn: true };
@@ -1072,6 +1078,67 @@ function ResultsScreen({ challenge, playerId, isCreator, onBack }) {
   // Real-time listener — all players see updates instantly
   useEffect(() => {
     return dbListen(ch.code, fresh => setCh(fresh));
+  }, [ch.code]);
+
+  // Auto-detect non-runners by re-polling racecards every 3 mins before races run
+  useEffect(() => {
+    const unrunRaces = (ch.selectedRaces || []).filter(r => !r.resultIn && isRaceOpen(r, ch.day));
+    if (!unrunRaces.length) return;
+    let cancelled = false;
+    const checkNRs = async () => {
+      if (cancelled) return;
+      try {
+        const data = await apiGet(`/api/racecards?day=${ch.day}`);
+        const fresh = await dbGet(ch.code);
+        if (!fresh || cancelled) return;
+        const latestRaces = parseRacecards(data);
+        let changed = false;
+        fresh.selectedRaces = toArr(fresh.selectedRaces).map(race => {
+          if (race.resultIn) return race;
+          // Find matching race in latest racecard
+          const latest = latestRaces.find(r =>
+            r.id === race.id ||
+            (normCourse(r.course) === normCourse(race.course) && normTime(r.time) === normTime(race.time))
+          );
+          if (!latest) return race;
+          // Find runners present before but missing now — mark as NR
+          const latestIds = new Set(latest.runners.map(h => h.id));
+          const latestNames = new Set(latest.runners.map(h => h.name.toLowerCase().replace(/[^a-z]/g, "")));
+          const updatedRunners = race.runners.map(h => {
+            const stillPresent = latestIds.has(h.id) ||
+              latestNames.has(h.name.toLowerCase().replace(/[^a-z]/g, ""));
+            if (!stillPresent && !h.nonRunner) {
+              changed = true;
+              console.log(`NR detected: ${h.name} in ${race.course} ${race.time}`);
+              return { ...h, nonRunner: true };
+            }
+            return h;
+          });
+          return { ...race, runners: updatedRunners };
+        });
+        if (changed) {
+          // Clear picks for newly detected NR horses
+          Object.values(fresh.players || {}).forEach(p => {
+            toArr(fresh.selectedRaces).forEach(race => {
+              const pick = p.picks?.[race.id];
+              if (!pick?.horseId) return;
+              const horse = race.runners.find(h => h.id === pick.horseId);
+              if (horse?.nonRunner && !pick.nonRunner) {
+                p.picks[race.id] = { ...pick, nonRunner: true };
+              }
+            });
+          });
+          await dbSet(fresh.code, fresh);
+          if (!cancelled) {
+            setCh(normaliseChallenge(fresh));
+            showToast("⚠️ Non-runner detected — affected players notified");
+          }
+        }
+      } catch (e) { console.warn("NR check error:", e.message); }
+    };
+    checkNRs();
+    const interval = setInterval(checkNRs, 3 * 60 * 1000);
+    return () => { cancelled = true; clearInterval(interval); };
   }, [ch.code]);
 
   // Auto-fetch results every 60s while any races are still pending
