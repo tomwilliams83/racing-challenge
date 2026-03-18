@@ -444,26 +444,16 @@ function mergePositions(races, data) {
       );
       if (!rh) { console.log(`    No match: "${h.name}" (${hName})`); return h; }
       const pos = rh.position != null && rh.position !== "" ? parseInt(rh.position) : null;
-      console.log(`    Matched: "${h.name}" -> pos ${pos}`);
-      return { ...h, position: isNaN(pos) ? null : pos, win: pos === 1 };
+      // Basic plan includes SP — capture it directly from results
+      const sp  = rh.sp || rh.starting_price || h.sp || null;
+      console.log(`    Matched: "${h.name}" -> pos ${pos} sp ${sp}`);
+      return { ...h, position: isNaN(pos) ? null : pos, win: pos === 1, sp };
     });
     return { ...race, runners, ewTerms: getEWTerms(runners.length, race.isHandicap), resultIn: true };
   });
 }
 
-// Apply manually entered SPs to races
-function applySPs(races, spMap) {
-  // spMap: { raceId: { horseId: "5/1", ... } }
-  return races.map(race => {
-    const raceSpMap = spMap[race.id];
-    if (!raceSpMap) return race;
-    const runners = race.runners.map(h => ({
-      ...h,
-      sp: raceSpMap[h.id] !== undefined ? raceSpMap[h.id] : h.sp,
-    }));
-    return { ...race, runners };
-  });
-}
+// applySPs removed — SPs now populated automatically from Basic API plan
 
 // Sort races chronologically by time
 function sortRaces(races) {
@@ -1089,7 +1079,7 @@ function ResultsScreen({ challenge, playerId, isCreator, onBack }) {
   const [tab,        setTab]    = useState(null);
   const [err,        setErr]    = useState("");
   const [toast,      showToast] = useToast();
-  const [spInputs,   setSpInputs] = useState({});
+
 
   const races   = sortRaces(ch.selectedRaces || []);
   const players = Object.values(ch.players || {});
@@ -1180,7 +1170,7 @@ function ResultsScreen({ challenge, playerId, isCreator, onBack }) {
           await dbSet(fresh.code, fresh);
           if (!cancelled) {
             setCh(prev => ({ ...prev, selectedRaces: updated }));
-            showToast(`${newCount - oldCount} result${newCount - oldCount !== 1 ? "s" : ""} in — enter SPs below 📝`);
+            showToast(`${newCount - oldCount} result${newCount - oldCount !== 1 ? "s" : ""} in — leaderboard updated! 🏆`);
           }
         }
       } catch (e) { console.warn("Auto-fetch error:", e.message); }
@@ -1211,39 +1201,9 @@ function ResultsScreen({ challenge, playerId, isCreator, onBack }) {
 
   const ranked     = players.map(p => ({ ...p, ...calcPlayer(p) })).sort((a, b) => b.totalReturn - a.totalReturn);
   const me         = ranked.find(p => p.id === playerId);
-  const hasResults = races.some(r => r.runners.some(h => h.sp));
+  const hasResults = races.some(r => r.resultIn);
 
   // Save manually entered SPs
-  async function saveSPs() {
-    // Trim inputs, filter empties and strip _edit flags
-    const cleanInputs = {};
-    Object.entries(spInputs).forEach(([raceId, horses]) => {
-      const clean = {};
-      Object.entries(horses).forEach(([hId, val]) => {
-        if (hId.endsWith("_edit")) return; // skip edit flags
-        const v = String(val || "").trim();
-        if (v) clean[hId] = v;
-      });
-      if (Object.keys(clean).length) cleanInputs[raceId] = clean;
-    });
-    // Apply to latest ch from Firebase
-    const fresh = (await dbGet(ch.code)) || ch;
-    const updatedRaces = applySPs(fresh.selectedRaces || races, cleanInputs);
-    fresh.selectedRaces = updatedRaces;
-    await dbSet(fresh.code, fresh);
-    // Also update local state immediately so UI reflects change without waiting for listener
-    setCh(prev => ({ ...prev, selectedRaces: updatedRaces }));
-    showToast("SPs saved! 🏆");
-    setSpInputs({});
-  }
-
-  function setSpInput(raceId, horseId, val) {
-    setSpInputs(prev => ({
-      ...prev,
-      [raceId]: { ...(prev[raceId] || {}), [horseId]: val }
-    }));
-  }
-
   // Mark/unmark a horse as non-runner — clears affected players' picks for that race
   async function toggleNonRunner(raceId, horseId) {
     const fresh = (await dbGet(ch.code)) || ch;
@@ -1267,35 +1227,6 @@ function ResultsScreen({ challenge, playerId, isCreator, onBack }) {
     });
     await dbSet(fresh.code, fresh);
     showToast("Non-runner updated");
-  }
-
-  // For each race, which horses need an SP entered?
-  // Only ask for horses where at least one player has a return on them
-  function getSpNeeded(race) {
-    if (!race.resultIn) return [];
-    const players = Object.values(ch.players || {});
-    // Collect horse IDs that players actually picked in this race
-    const pickedWin = new Set(
-      players.filter(p => p.picks?.[race.id]?.betType === "win")
-             .map(p => p.picks[race.id].horseId)
-    );
-    const pickedEW = new Set(
-      players.filter(p => p.picks?.[race.id]?.betType === "ew")
-             .map(p => p.picks[race.id].horseId)
-    );
-    const maxPlace = race.ewTerms?.places || 1;
-
-    return race.runners
-      .filter(h => {
-        const pos = Number(h.position);
-        if (!pos || pos < 1) return false;
-        // Winner picked by anyone on win or EW
-        if (pos === 1 && (pickedWin.has(h.id) || pickedEW.has(h.id))) return true;
-        // Placed horse picked EW by someone
-        if (pos > 1 && pos <= maxPlace && pickedEW.has(h.id)) return true;
-        return false;
-      })
-      .sort((a, b) => Number(a.position) - Number(b.position));
   }
 
   const pendingCount = races.filter(r => !r.resultIn).length;
@@ -1374,78 +1305,6 @@ function ResultsScreen({ challenge, playerId, isCreator, onBack }) {
         ))}
       </div>
 
-      {/* 4. SP ENTRY — collapsed by default, shown at bottom */}
-      {races.some(r => r.resultIn) && (() => {
-        const spNeeded = races.filter(r => r.resultIn && getSpNeeded(r).some(h => !h.sp));
-        return spNeeded.length > 0 ? (
-          <div className="sp-section" style={{ marginTop: 20 }}>
-            <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 4 }}>
-              📝 Enter Starting Prices
-              <span style={{ fontSize: 12, color: "#b36000", fontWeight: 400, marginLeft: 8 }}>
-                ({spNeeded.length} race{spNeeded.length !== 1 ? "s" : ""} still need SPs)
-              </span>
-            </div>
-            <div style={{ color: "#b36000", fontSize: 13, marginBottom: 14 }}>
-              Anyone can add these — use fractional format e.g. <strong>5/1</strong>, <strong>11/4</strong>, or <strong>Evs</strong>.
-            </div>
-            {races.filter(r => r.resultIn).map(race => {
-              const needed = getSpNeeded(race);
-              if (!needed.length) return null;
-              return (
-                <div key={race.id} style={{ marginBottom: 14 }}>
-                  <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 6 }}>
-                    <span className="time-badge">{race.time}</span>{race.course}
-                  </div>
-                  {needed.map(h => {
-                    const posClass  = h.position === 1 ? "winner" : "placed";
-                    const posLabel  = String(h.position);
-                    const posCircle = h.position <= 3 ? `pos-${h.position}` : "pos-n";
-                    const isEditing = spInputs[race.id]?.[h.id + "_edit"] === true;
-                    return (
-                      <div key={h.id} className={`sp-row ${posClass}`} style={{ marginBottom: 6 }}>
-                        <span className={`pos-badge ${posCircle}`}>{posLabel}</span>
-                        <span className="sp-horse">{h.name}</span>
-                        {h.sp && !isEditing
-                          ? <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                              <span style={{ fontSize: 13, fontWeight: 700, color: C.win }}>✓ {h.sp}</span>
-                              <button onClick={() => setSpInput(race.id, h.id + "_edit", true)}
-                                style={{ fontSize: 11, color: C.muted, background: "none", border: "none", cursor: "pointer", textDecoration: "underline" }}>
-                                edit
-                              </button>
-                            </span>
-                          : <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                              <input className="sp-inp" placeholder={h.sp || "e.g. 5/1"}
-                                value={spInputs[race.id]?.[h.id] || ""}
-                                onChange={e => setSpInput(race.id, h.id, e.target.value)}
-                                autoFocus={isEditing} />
-                              {isEditing && (
-                                <button onClick={() => setSpInput(race.id, h.id + "_edit", false)}
-                                  style={{ fontSize: 11, color: C.muted, background: "none", border: "none", cursor: "pointer", textDecoration: "underline" }}>
-                                  cancel
-                                </button>
-                              )}
-                            </span>
-                        }
-                      </div>
-                    );
-                  })}
-                </div>
-              );
-            })}
-            <button className="btn btn-pink" style={{ marginTop: 4 }} onClick={saveSPs}
-              disabled={!races.filter(r => r.resultIn).some(race =>
-                getSpNeeded(race).some(h => {
-                  const val = spInputs[race.id]?.[h.id];
-                  const editing = spInputs[race.id]?.[h.id + "_edit"];
-                  return val && val !== true && (editing ? val !== h.sp : !h.sp);
-                })
-              )}>
-              Save SPs &amp; Calculate Returns
-            </button>
-          </div>
-        ) : null;
-      })()}
-
       {/* 5. NR MANAGEMENT — creator only, at bottom */}
       {isCreator && races.some(r => !r.resultIn) && (
         <div style={{ marginTop: 20 }}>
@@ -1482,7 +1341,7 @@ function ResultsScreen({ challenge, playerId, isCreator, onBack }) {
         <div className="card" style={{ textAlign: "center", marginBottom: 20 }}>
           <div style={{ fontSize: 36, marginBottom: 8 }}>⏳</div>
           <div style={{ color: C.muted, lineHeight: 1.65, fontWeight: 500 }}>
-            Results are checked automatically every minute — SPs can be entered by anyone once races are run.
+            Results and Starting Prices are loaded automatically — leaderboard updates within a minute of each race finishing.
           </div>
         </div>
       )}
@@ -1584,7 +1443,7 @@ function ResultsScreen({ challenge, playerId, isCreator, onBack }) {
                         <div style={{ fontSize: 11, color: C.muted, fontWeight: 500, marginBottom: 2 }}>Returns</div>
                         <div style={{ fontFamily: "'DM Serif Display', serif", fontSize: 22, fontWeight: 700,
                           color: ret.total > 0 ? C.win : isLoser ? C.danger : C.muted }}>
-                          {horse?.sp ? fmtPts(ret.total) : "SP needed"}
+                          {fmtPts(ret.total)}
                         </div>
                         {ret.total > 0 && (
                           <div style={{ fontSize: 12, color: C.win, fontWeight: 600 }}>
