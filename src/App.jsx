@@ -409,13 +409,11 @@ function mergePositions(races, data) {
     // 1. Direct ID match
     let res = list.find(r => (r.race_id || r.id) === race.id);
     if (res) { console.log(`  ✅ ${race.course} ${race.time} matched by ID`); return res; }
-    // 2. Course + time
+    // 2. Course + time — BOTH must match (never course alone to avoid false matches)
     res = list.find(r => r._time === rTime && (r._course.includes(rCourse) || rCourse.includes(r._course)));
     if (res) { console.log(`  ✅ ${race.course} ${race.time} matched by course+time`); return res; }
-    // 3. Course only (single match)
-    const cm = list.filter(r => r._course.includes(rCourse) || rCourse.includes(r._course));
-    if (cm.length === 1) { console.log(`  ✅ ${race.course} ${race.time} matched by course only`); return cm[0]; }
-    console.log(`  ❌ No match for ${race.course} ${race.time}`);
+    console.log(`  ❌ No match for ${race.course} ${race.time} (looking for course=${rCourse} time=${rTime})`);
+    if (list.length) console.log(`     Available: ${list.slice(0,5).map(r => `${r._course} ${r._time}`).join(", ")}`);
     return null;
   }
 
