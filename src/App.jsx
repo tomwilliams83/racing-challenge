@@ -1320,121 +1320,9 @@ function ResultsScreen({ challenge, playerId, isCreator, onBack }) {
 
       {err && <div className="err" style={{ marginBottom: 14 }}>{err}</div>}
 
-      {/* Non-runner management — creator only, shown for all races before they run */}
-      {isCreator && (
-        <div style={{ marginBottom: 16 }}>
-          {races.filter(r => !r.resultIn).map(race => (
-            <div key={race.id} className="card" style={{ marginBottom: 8 }}>
-              <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 8 }}>
-                <span className="time-badge">{race.time}</span>{race.course}
-                <span style={{ fontSize: 12, color: C.muted, marginLeft: 8, fontWeight: 400 }}>
-                  — mark non-runners
-                </span>
-              </div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                {race.runners.map(h => (
-                  <button key={h.id}
-                    onClick={() => toggleNonRunner(race.id, h.id)}
-                    style={{
-                      fontSize: 12, padding: "4px 10px", borderRadius: 20, border: "1.5px solid",
-                      cursor: "pointer", fontFamily: "inherit", fontWeight: 600,
-                      borderColor: h.nonRunner ? C.danger : C.border,
-                      background: h.nonRunner ? "#fff0f0" : "#fff",
-                      color: h.nonRunner ? C.danger : C.muted,
-                      textDecoration: h.nonRunner ? "line-through" : "none",
-                    }}>
-                    {h.nonRunner ? "✗ " : ""}{h.name}
-                  </button>
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* SP Entry section — open to all players once positions are loaded */}
-      {races.some(r => r.resultIn) && (
-        <div className="sp-section">
-          <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 4 }}>
-            📝 Enter Starting Prices
-          </div>
-          <div style={{ color: "#b36000", fontSize: 13, marginBottom: 14 }}>
-            Enter the SP for each result below. Anyone can add these — use fractional format e.g. <strong>5/1</strong>, <strong>11/4</strong>, or <strong>Evs</strong>.
-          </div>
-          {races.filter(r => r.resultIn).map(race => {
-            const needed = getSpNeeded(race);
-            if (!needed.length) return null;
-            return (
-              <div key={race.id} style={{ marginBottom: 14 }}>
-                <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 6, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span><span className="time-badge">{race.time}</span>{race.course}</span>
-                </div>
-                {needed.map(h => {
-                  const posClass = h.position === 1 ? "winner" : "placed";
-                  const posLabel = h.position === 1 ? "1" : h.position === 2 ? "2" : h.position === 3 ? "3" : String(h.position);
-                  const posCircle = h.position <= 3 ? `pos-${h.position}` : "pos-n";
-                  const isEditing = spInputs[race.id]?.[h.id + "_edit"] === true;
-                  return (
-                    <div key={h.id} className={`sp-row ${posClass}`} style={{ marginBottom: 6 }}>
-                      <span className={`pos-badge ${posCircle}`}>{posLabel}</span>
-                      <span className="sp-horse">{h.name}</span>
-                      {h.sp && !isEditing
-                        ? <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                            <span style={{ fontSize: 13, fontWeight: 700, color: C.win }}>✓ {h.sp}</span>
-                            <button onClick={() => setSpInput(race.id, h.id + "_edit", true)}
-                              style={{ fontSize: 11, color: C.muted, background: "none", border: "none", cursor: "pointer", padding: "2px 4px", textDecoration: "underline" }}>
-                              edit
-                            </button>
-                          </span>
-                        : <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                            <input
-                              className="sp-inp"
-                              placeholder={h.sp || "e.g. 5/1"}
-                              value={spInputs[race.id]?.[h.id] || ""}
-                              onChange={e => setSpInput(race.id, h.id, e.target.value)}
-                              autoFocus={isEditing}
-                            />
-                            {isEditing && (
-                              <button onClick={() => setSpInput(race.id, h.id + "_edit", false)}
-                                style={{ fontSize: 11, color: C.muted, background: "none", border: "none", cursor: "pointer", padding: "2px 4px", textDecoration: "underline" }}>
-                                cancel
-                              </button>
-                            )}
-                          </span>
-                      }
-                    </div>
-                  );
-                })}
-              </div>
-            );
-          })}
-          {races.some(r => r.resultIn) && (
-            <button className="btn btn-pink" style={{ marginTop: 4 }} onClick={saveSPs}
-              disabled={!races.filter(r => r.resultIn).some(race =>
-                getSpNeeded(race).some(h => {
-                  const val = spInputs[race.id]?.[h.id];
-                  const editing = spInputs[race.id]?.[h.id + "_edit"];
-                  // Enable if: new SP entered, OR editing an existing SP with a new value
-                  return val && val !== true && (editing ? val !== h.sp : !h.sp);
-                })
-              )}>
-              Save SPs &amp; Calculate Returns
-            </button>
-          )}
-        </div>
-      )}
-
-      {!races.some(r => r.resultIn) && (
-        <div className="card" style={{ textAlign: "center", marginBottom: 20 }}>
-          <div style={{ fontSize: 36, marginBottom: 8 }}>⏳</div>
-          <div style={{ color: C.muted, lineHeight: 1.65, fontWeight: 500 }}>
-            "Results are checked automatically every minute — SPs can be entered by anyone once races are run."
-          </div>
-        </div>
-      )}
-
+      {/* 1. YOUR RETURNS CARD */}
       {me && (
-        <div className="card card-pink" style={{ marginBottom: 20, textAlign: "center" }}>
+        <div className="card card-pink" style={{ marginBottom: 16, textAlign: "center" }}>
           <div className="eyebrow" style={{ marginBottom: 8 }}>Your Returns · {me.name}</div>
           <div className="pts-big">{fmtPts(me.totalReturn)}</div>
           <div className="pts-sub">
@@ -1454,7 +1342,7 @@ function ResultsScreen({ challenge, playerId, isCreator, onBack }) {
         </div>
       )}
 
-      {/* Leaderboard — always visible at top */}
+      {/* 2. LEADERBOARD */}
       <div style={{ marginBottom: 20 }}>
         {ranked.map((p, i) => (
           <div key={p.id} className={`lb-row${i === 0 ? " p1" : ""}`}>
@@ -1481,11 +1369,125 @@ function ResultsScreen({ challenge, playerId, isCreator, onBack }) {
         ))}
       </div>
 
+      {/* 3. RACE CARD / MY PICKS TABS */}
       <div className="tabs">
         {[["card","📋 Race Card"],["mine","My Picks"]].map(([id, label]) => (
           <button key={id} className={`tab${tab === id ? " on" : ""}`} onClick={() => setTab(tab === id ? null : id)}>{label}</button>
         ))}
       </div>
+
+      {/* 4. SP ENTRY — collapsed by default, shown at bottom */}
+      {races.some(r => r.resultIn) && (() => {
+        const spNeeded = races.filter(r => r.resultIn && getSpNeeded(r).some(h => !h.sp));
+        return spNeeded.length > 0 ? (
+          <div className="sp-section" style={{ marginTop: 20 }}>
+            <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 4 }}>
+              📝 Enter Starting Prices
+              <span style={{ fontSize: 12, color: "#b36000", fontWeight: 400, marginLeft: 8 }}>
+                ({spNeeded.length} race{spNeeded.length !== 1 ? "s" : ""} still need SPs)
+              </span>
+            </div>
+            <div style={{ color: "#b36000", fontSize: 13, marginBottom: 14 }}>
+              Anyone can add these — use fractional format e.g. <strong>5/1</strong>, <strong>11/4</strong>, or <strong>Evs</strong>.
+            </div>
+            {races.filter(r => r.resultIn).map(race => {
+              const needed = getSpNeeded(race);
+              if (!needed.length) return null;
+              return (
+                <div key={race.id} style={{ marginBottom: 14 }}>
+                  <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 6 }}>
+                    <span className="time-badge">{race.time}</span>{race.course}
+                  </div>
+                  {needed.map(h => {
+                    const posClass  = h.position === 1 ? "winner" : "placed";
+                    const posLabel  = String(h.position);
+                    const posCircle = h.position <= 3 ? `pos-${h.position}` : "pos-n";
+                    const isEditing = spInputs[race.id]?.[h.id + "_edit"] === true;
+                    return (
+                      <div key={h.id} className={`sp-row ${posClass}`} style={{ marginBottom: 6 }}>
+                        <span className={`pos-badge ${posCircle}`}>{posLabel}</span>
+                        <span className="sp-horse">{h.name}</span>
+                        {h.sp && !isEditing
+                          ? <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                              <span style={{ fontSize: 13, fontWeight: 700, color: C.win }}>✓ {h.sp}</span>
+                              <button onClick={() => setSpInput(race.id, h.id + "_edit", true)}
+                                style={{ fontSize: 11, color: C.muted, background: "none", border: "none", cursor: "pointer", textDecoration: "underline" }}>
+                                edit
+                              </button>
+                            </span>
+                          : <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                              <input className="sp-inp" placeholder={h.sp || "e.g. 5/1"}
+                                value={spInputs[race.id]?.[h.id] || ""}
+                                onChange={e => setSpInput(race.id, h.id, e.target.value)}
+                                autoFocus={isEditing} />
+                              {isEditing && (
+                                <button onClick={() => setSpInput(race.id, h.id + "_edit", false)}
+                                  style={{ fontSize: 11, color: C.muted, background: "none", border: "none", cursor: "pointer", textDecoration: "underline" }}>
+                                  cancel
+                                </button>
+                              )}
+                            </span>
+                        }
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })}
+            <button className="btn btn-pink" style={{ marginTop: 4 }} onClick={saveSPs}
+              disabled={!races.filter(r => r.resultIn).some(race =>
+                getSpNeeded(race).some(h => {
+                  const val = spInputs[race.id]?.[h.id];
+                  const editing = spInputs[race.id]?.[h.id + "_edit"];
+                  return val && val !== true && (editing ? val !== h.sp : !h.sp);
+                })
+              )}>
+              Save SPs &amp; Calculate Returns
+            </button>
+          </div>
+        ) : null;
+      })()}
+
+      {/* 5. NR MANAGEMENT — creator only, at bottom */}
+      {isCreator && races.some(r => !r.resultIn) && (
+        <div style={{ marginTop: 20 }}>
+          <div style={{ fontSize: 12, color: C.muted, fontWeight: 600, textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>
+            Mark Non-Runners
+          </div>
+          {races.filter(r => !r.resultIn).map(race => (
+            <div key={race.id} className="card" style={{ marginBottom: 8 }}>
+              <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 8 }}>
+                <span className="time-badge">{race.time}</span>{race.course}
+              </div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                {race.runners.map(h => (
+                  <button key={h.id} onClick={() => toggleNonRunner(race.id, h.id)}
+                    style={{
+                      fontSize: 12, padding: "4px 10px", borderRadius: 20, border: "1.5px solid",
+                      cursor: "pointer", fontFamily: "inherit", fontWeight: 600,
+                      borderColor: h.nonRunner ? C.danger : C.border,
+                      background: h.nonRunner ? "#fff0f0" : "#fff",
+                      color: h.nonRunner ? C.danger : C.muted,
+                      textDecoration: h.nonRunner ? "line-through" : "none",
+                    }}>
+                    {h.nonRunner ? "✗ " : ""}{h.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* 6. PENDING MESSAGE — no results yet */}
+      {!races.some(r => r.resultIn) && (
+        <div className="card" style={{ textAlign: "center", marginBottom: 20 }}>
+          <div style={{ fontSize: 36, marginBottom: 8 }}>⏳</div>
+          <div style={{ color: C.muted, lineHeight: 1.65, fontWeight: 500 }}>
+            Results are checked automatically every minute — SPs can be entered by anyone once races are run.
+          </div>
+        </div>
+      )}
 
       {tab === "card" && (
         <div className="fade">
