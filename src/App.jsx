@@ -30,6 +30,7 @@ function normaliseChallenge(data) {
       ...h,
       position: h.position != null && h.position !== "" ? parseInt(h.position) : null,
       sp: h.sp || null,
+      spDec: h.spDec != null ? parseFloat(h.spDec) : null,
     }));
     return { ...race, runners };
   }).filter(Boolean);
@@ -267,8 +268,9 @@ function spToDecimal(sp) {
 }
 
 // Win = 2pts (NAP = 4pts). EW = 1pt win + 1pt place (NAP = 2pt win + 2pt place).
-function calcSelectionReturn(sp, betType, position, ewTerms, isNap = false) {
-  const dec = spToDecimal(sp);
+function calcSelectionReturn(sp, betType, position, ewTerms, isNap = false, spDec = null) {
+  // Use pre-calculated decimal from API if available, otherwise parse fractional string
+  const dec = spDec != null ? spDec : spToDecimal(sp);
   // Always parse position as integer — API returns strings
   const pos = (position !== null && position !== undefined) ? parseInt(position) : null;
   if (!dec) return { win: 0, place: 0, total: 0, staked: betType === "ew" ? (isNap ? 4 : 2) : (isNap ? 4 : 2) };
@@ -445,9 +447,10 @@ function mergePositions(races, data) {
       if (!rh) { console.log(`    No match: "${h.name}" (${hName})`); return h; }
       const pos = rh.position != null && rh.position !== "" ? parseInt(rh.position) : null;
       // Basic plan includes SP — capture it directly from results
-      const sp  = rh.sp || rh.starting_price || h.sp || null;
-      console.log(`    Matched: "${h.name}" -> pos ${pos} sp ${sp}`);
-      return { ...h, position: isNaN(pos) ? null : pos, win: pos === 1, sp };
+      const sp     = rh.sp || rh.starting_price || h.sp || null;       // fractional string for display
+      const spDec  = rh.sp_dec != null ? parseFloat(rh.sp_dec) : null; // decimal for calculation
+      console.log(`    Matched: "${h.name}" -> pos ${pos} sp ${sp} sp_dec ${spDec}`);
+      return { ...h, position: isNaN(pos) ? null : pos, win: pos === 1, sp, spDec };
     });
     return { ...race, runners, ewTerms: getEWTerms(runners.length, race.isHandicap), resultIn: true };
   });
@@ -1074,6 +1077,54 @@ function msUntilNextFetch(offTime, day, resultIn) {
   return null; // all four windows have passed
 }
 
+// ── NR PANEL (collapsible, creator only) ─────────────────────────────────────
+function NRPanel({ races, onToggle }) {
+  const [open, setOpen] = useState(false);
+  const nrCount = races.flatMap(r => r.runners).filter(h => h.nonRunner).length;
+  return (
+    <div style={{ marginTop: 20 }}>
+      <button onClick={() => setOpen(o => !o)}
+        style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "inherit",
+          display: "flex", alignItems: "center", gap: 8, color: C.muted, fontSize: 13, fontWeight: 600, padding: 0 }}>
+        <span style={{ fontSize: 11, transition: "transform .2s", display: "inline-block", transform: open ? "rotate(180deg)" : "none" }}>▼</span>
+        Manage Non-Runners
+        {nrCount > 0 && (
+          <span style={{ background: "#fff0f0", color: C.danger, border: `1.5px solid ${C.danger}`,
+            borderRadius: 20, padding: "1px 8px", fontSize: 11, fontWeight: 700 }}>
+            {nrCount} marked
+          </span>
+        )}
+      </button>
+      {open && (
+        <div style={{ marginTop: 12 }} className="fade">
+          {races.filter(r => !r.resultIn).map(race => (
+            <div key={race.id} className="card" style={{ marginBottom: 8 }}>
+              <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 8 }}>
+                <span className="time-badge">{race.time}</span>{race.course}
+              </div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                {race.runners.map(h => (
+                  <button key={h.id} onClick={() => onToggle(race.id, h.id)}
+                    style={{
+                      fontSize: 12, padding: "4px 10px", borderRadius: 20, border: "1.5px solid",
+                      cursor: "pointer", fontFamily: "inherit", fontWeight: 600,
+                      borderColor: h.nonRunner ? C.danger : C.border,
+                      background: h.nonRunner ? "#fff0f0" : "#fff",
+                      color: h.nonRunner ? C.danger : C.muted,
+                      textDecoration: h.nonRunner ? "line-through" : "none",
+                    }}>
+                    {h.nonRunner ? "✗ " : ""}{h.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ResultsScreen({ challenge, playerId, isCreator, onBack }) {
   const [ch,         setCh]     = useState(challenge);
   const [tab,        setTab]    = useState(null);
@@ -1189,7 +1240,7 @@ function ResultsScreen({ challenge, playerId, isCreator, onBack }) {
       const isNap   = p.napRaceId === race.id;
       const horse   = race.runners.find(h => h.id === hId);
       if (!horse) return { race, horse: null, betType, isNap, ret: { total: 0, win: 0, place: 0, staked: isNap ? 4 : 2 } };
-      const ret = calcSelectionReturn(horse.sp, betType, horse.position, race.ewTerms, isNap);
+      const ret = calcSelectionReturn(horse.sp, betType, horse.position, race.ewTerms, isNap, horse.spDec ?? null);
       totalReturn += ret.total;
       totalStaked += ret.staked;
       if (horse.position === 1) wins++;
@@ -1305,35 +1356,9 @@ function ResultsScreen({ challenge, playerId, isCreator, onBack }) {
         ))}
       </div>
 
-      {/* 5. NR MANAGEMENT — creator only, at bottom */}
+      {/* 5. NR MANAGEMENT — creator only, hidden behind toggle */}
       {isCreator && races.some(r => !r.resultIn) && (
-        <div style={{ marginTop: 20 }}>
-          <div style={{ fontSize: 12, color: C.muted, fontWeight: 600, textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>
-            Mark Non-Runners
-          </div>
-          {races.filter(r => !r.resultIn).map(race => (
-            <div key={race.id} className="card" style={{ marginBottom: 8 }}>
-              <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 8 }}>
-                <span className="time-badge">{race.time}</span>{race.course}
-              </div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                {race.runners.map(h => (
-                  <button key={h.id} onClick={() => toggleNonRunner(race.id, h.id)}
-                    style={{
-                      fontSize: 12, padding: "4px 10px", borderRadius: 20, border: "1.5px solid",
-                      cursor: "pointer", fontFamily: "inherit", fontWeight: 600,
-                      borderColor: h.nonRunner ? C.danger : C.border,
-                      background: h.nonRunner ? "#fff0f0" : "#fff",
-                      color: h.nonRunner ? C.danger : C.muted,
-                      textDecoration: h.nonRunner ? "line-through" : "none",
-                    }}>
-                    {h.nonRunner ? "✗ " : ""}{h.name}
-                  </button>
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
+        <NRPanel races={races} onToggle={toggleNonRunner} />
       )}
 
       {/* 6. PENDING MESSAGE — no results yet */}
