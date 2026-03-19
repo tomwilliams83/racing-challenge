@@ -356,7 +356,6 @@ function parseRacecards(data) {
       draw:     h.draw || "",
       jockey:   h.jockey || "",
       trainer:  h.trainer || "",
-      trainerForm: h.trainer_14_days || null,  // { runs, wins, percent }
       form:     h.form || "",
       ofr:      h.ofr || "",
       ts:       h.ts || "",
@@ -365,7 +364,7 @@ function parseRacecards(data) {
       age:      h.age || "",
       sex:      h.sex_code || h.sex || "",
       colour:   h.colour || "",
-      silkUrl:  h.silk_url || null,
+      lastRun:  h.last_run || "",
       sire:     h.sire || "",
       dam:      h.dam || "",
       sp: null, position: null, win: false,
@@ -935,9 +934,7 @@ function RunnerCard({ horse, onClose }) {
 
         {/* Header: silk + name */}
         <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 18 }}>
-          {horse.silkUrl && (
-            <img src={horse.silkUrl} alt="silk" style={{ width: 48, height: 48, objectFit: "contain" }} />
-          )}
+
           <div>
             <div style={{ fontSize: 20, fontWeight: 700, color: C.text }}>
               {horse.number ? `${horse.number}. ` : ""}{horse.name}
@@ -951,11 +948,11 @@ function RunnerCard({ horse, onClose }) {
         {/* Stats grid */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 16 }}>
           {[
-            ["Form",     horse.form || "–"],
-            ["OR",       horse.ofr  || "–"],
-            ["TS",       horse.ts   || "–"],
-            ["Weight",   horse.lbs ? lbsToStone(horse.lbs) : "–"],
-            ["Draw",     horse.draw || "–"],
+            ["Form",     horse.form     || "–"],
+            ["Weight",   horse.lbs      ? lbsToStone(horse.lbs) : "–"],
+            ["Draw",     horse.draw     || "–"],
+            ["OR",       horse.ofr      || "–"],
+            ["Last Run", horse.lastRun  ? `${horse.lastRun}d` : "–"],
             ["Headgear", horse.headgear || "–"],
           ].map(([label, val]) => (
             <div key={label} style={{ background: C.bg, borderRadius: 10, padding: "10px 12px", textAlign: "center" }}>
@@ -974,15 +971,7 @@ function RunnerCard({ horse, onClose }) {
         {/* Trainer + form */}
         <div style={{ background: C.bg, borderRadius: 10, padding: "10px 14px", marginBottom: 8 }}>
           <div style={{ fontSize: 11, letterSpacing: 1.5, color: C.muted, fontWeight: 600, textTransform: "uppercase", marginBottom: 2 }}>Trainer</div>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <div style={{ fontSize: 15, fontWeight: 600, color: C.text }}>{horse.trainer || "–"}</div>
-            {horse.trainerForm && (
-              <div style={{ fontSize: 12, color: C.muted, textAlign: "right" }}>
-                <span style={{ fontWeight: 700, color: C.blue }}>{horse.trainerForm.wins}/{horse.trainerForm.runs}</span>
-                <span style={{ marginLeft: 4 }}>({horse.trainerForm.percent}%) last 14 days</span>
-              </div>
-            )}
-          </div>
+          <div style={{ fontSize: 15, fontWeight: 600, color: C.text }}>{horse.trainer || "–"}</div>
         </div>
 
         {/* Breeding */}
@@ -1183,32 +1172,34 @@ function PicksScreen({ challenge, playerId, onSubmit, onBack, editMode = false }
                       className={`hbtn${isPicked ? (betType === "ew" ? " ew-picked" : " win-picked") : ""}${isPicked && isNap ? " nap-outline" : ""}`}
                       onClick={() => pickHorse(race.id, h.id)}>
                       <span style={{ display: "flex", alignItems: "center", gap: 8, flex: 1, minWidth: 0 }}>
-                        {h.silkUrl
-                          ? <img src={h.silkUrl} alt="" style={{ width: 28, height: 28, objectFit: "contain", flexShrink: 0 }} />
-                          : <span style={{ width: 28, height: 28, background: isPicked ? "rgba(255,255,255,.25)" : C.border,
-                              borderRadius: 4, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
-                              fontSize: 11, fontWeight: 700, color: isPicked ? "#fff" : C.muted }}>
-                              {h.number || "?"}
-                            </span>
-                        }
+                        <span style={{ width: 28, height: 28, background: isPicked ? "rgba(255,255,255,.25)" : C.border,
+                            borderRadius: 4, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
+                            fontSize: 11, fontWeight: 700, color: isPicked ? "#fff" : C.muted }}>
+                            {h.number || "?"}
+                          </span>
                         <span style={{ textAlign: "left", minWidth: 0 }}>
                           <span style={{ fontWeight: isPicked ? 600 : 400, display: "block", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                             {h.name}
                           </span>
-                          {h.trainer && <span style={{ display: "block", fontSize: 11, opacity: .65, marginTop: 1,
+                          {h.jockey && <span style={{ display: "block", fontSize: 11, opacity: .65, marginTop: 1,
                             whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                            T: {h.trainer}
+                            {h.jockey}
                           </span>}
                         </span>
                       </span>
-                      <span style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4, flexShrink: 0, marginLeft: 4 }}>
+                      <span style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 3, flexShrink: 0, marginLeft: 4 }}>
                         <button
                           onClick={e => { e.stopPropagation(); setSelectedRunner(h); }}
                           style={{ background: "none", border: "none", cursor: "pointer", padding: "2px 4px",
-                            fontSize: 14, opacity: .5, lineHeight: 1 }}>ℹ️</button>
-                        {(h.ofr || h.form) && (
-                          <span style={{ fontSize: 10, fontWeight: 600, color: isPicked ? "rgba(255,255,255,.7)" : C.muted }}>
-                            {h.ofr ? `OR${h.ofr}` : h.form}
+                            fontSize: 13, opacity: .5, lineHeight: 1 }}>ℹ️</button>
+                        {h.form && (
+                          <span style={{ fontSize: 10, fontWeight: 700, color: isPicked ? "rgba(255,255,255,.8)" : C.text }}>
+                            {h.form}
+                          </span>
+                        )}
+                        {h.lbs && (
+                          <span style={{ fontSize: 10, fontWeight: 600, color: isPicked ? "rgba(255,255,255,.65)" : C.muted }}>
+                            {lbsToStone(h.lbs)}
                           </span>
                         )}
                       </span>
