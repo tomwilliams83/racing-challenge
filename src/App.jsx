@@ -1242,7 +1242,8 @@ function ResultsScreen({ challenge, playerId, isCreator, onBack }) {
       if (!horse) return { race, horse: null, betType, isNap, ret: { total: 0, win: 0, place: 0, staked: isNap ? 4 : 2 } };
       const ret = calcSelectionReturn(horse.sp, betType, horse.position, race.ewTerms, isNap, horse.spDec ?? null);
       totalReturn += ret.total;
-      totalStaked += ret.staked;
+      // Only count staked for races that have actually run
+      if (race.resultIn) totalStaked += ret.staked;
       if (horse.position === 1) wins++;
       else if (ret.place > 0) places++;
       return { race, horse, betType, isNap, ret };
@@ -1311,11 +1312,10 @@ function ResultsScreen({ challenge, playerId, isCreator, onBack }) {
             {me.napRaceId ? " · NAP ⭐" : ""}
             {" "}· {me.totalStaked} pts staked
           </div>
-          {hasResults && (
+          {me.totalStaked > 0 && (
             <div style={{ marginTop: 10, fontSize: 16, fontWeight: 600, color: me.totalReturn >= me.totalStaked ? C.win : C.danger }}>
               {me.totalReturn >= me.totalStaked
                 ? `+${(me.totalReturn - me.totalStaked).toFixed(2)} pts profit 🎉`
-                : me.totalReturn === 0 ? "No returns — better luck next time"
                 : `-${(me.totalStaked - me.totalReturn).toFixed(2)} pts`}
             </div>
           )}
@@ -1339,9 +1339,9 @@ function ResultsScreen({ challenge, playerId, isCreator, onBack }) {
             </div>
             <div style={{ textAlign: "right" }}>
               <div className="lb-pts">{fmtPts(p.totalReturn)}</div>
-              {hasResults && (
+              {p.totalStaked > 0 && (
                 <div style={{ fontSize: 13, fontWeight: 600, color: p.totalReturn >= p.totalStaked ? C.win : C.muted }}>
-                  {p.totalReturn >= p.totalStaked ? `+${(p.totalReturn - p.totalStaked).toFixed(2)}` : p.totalReturn === 0 ? "—" : `-${(p.totalStaked - p.totalReturn).toFixed(2)}`}
+                  {p.totalReturn >= p.totalStaked ? `+${(p.totalReturn - p.totalStaked).toFixed(2)}` : `-${(p.totalStaked - p.totalReturn).toFixed(2)}`}
                 </div>
               )}
             </div>
@@ -1497,12 +1497,15 @@ function ResultsScreen({ challenge, playerId, isCreator, onBack }) {
             <div style={{ fontFamily: "'DM Serif Display', serif", fontSize: 28, color: C.pink }}>
               {fmtPts(me.totalReturn)}
             </div>
-            {hasResults && me.totalReturn > 0 && (
+            {me.totalStaked > 0 && (
               <div style={{ fontSize: 15, marginTop: 4, fontWeight: 600, color: me.totalReturn >= me.totalStaked ? C.win : C.danger }}>
                 {me.totalReturn >= me.totalStaked
                   ? `+${(me.totalReturn - me.totalStaked).toFixed(2)} pts profit 🎉`
                   : `-${(me.totalStaked - me.totalReturn).toFixed(2)} pts`}
               </div>
+            )}
+            {me.totalStaked === 0 && (
+              <div style={{ fontSize: 13, color: C.muted, marginTop: 4 }}>Awaiting results…</div>
             )}
           </div>
         </div>
