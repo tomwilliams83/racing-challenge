@@ -146,7 +146,7 @@ const GLOBAL_CSS = `
   .race-row.sel { border-color: ${C.pink}; background: ${C.pinkBg}; box-shadow: 0 3px 14px rgba(255,10,108,.12); }
 
   .horse-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 13px; }
-  @media(max-width:500px){ .horse-grid { grid-template-columns: 1fr; } }
+  @media(max-width:420px){ .horse-grid { grid-template-columns: 1fr; } }
   .hbtn { background: ${C.bg}; border: 1.5px solid ${C.border}; border-radius: 10px; padding: 10px 13px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; width: 100%; color: ${C.text}; font-family: 'DM Sans', sans-serif; font-size: 14px; transition: all .15s; text-align: left; }
   .hbtn:hover { border-color: ${C.pink}; background: ${C.pinkBg}; }
   .hbtn.win-picked { background: ${C.pink}; border-color: ${C.pinkDk}; color: #fff; font-weight: 600; box-shadow: 0 3px 10px rgba(255,10,108,.35); }
@@ -350,10 +350,24 @@ function parseRacecards(data) {
   return list.filter(r => isUKIrish(r.course || r.venue || "")).map(r => {
     const isHandicap = /handicap/i.test(r.race_name || r.name || "");
     const runners = (r.runners || []).map(h => ({
-      id: h.horse_id || h.id || h.horse,
-      name: h.horse || h.name || "Unknown",
-      number: h.number || h.cloth || "",
-      jockey: h.jockey || "",
+      id:       h.horse_id || h.id || h.horse,
+      name:     h.horse || h.name || "Unknown",
+      number:   h.number || h.cloth || "",
+      draw:     h.draw || "",
+      jockey:   h.jockey || "",
+      trainer:  h.trainer || "",
+      trainerForm: h.trainer_14_days || null,  // { runs, wins, percent }
+      form:     h.form || "",
+      ofr:      h.ofr || "",
+      ts:       h.ts || "",
+      lbs:      h.lbs || "",
+      headgear: h.headgear || "",
+      age:      h.age || "",
+      sex:      h.sex_code || h.sex || "",
+      colour:   h.colour || "",
+      silkUrl:  h.silk_url || null,
+      sire:     h.sire || "",
+      dam:      h.dam || "",
       sp: null, position: null, win: false,
     }));
     return {
@@ -459,6 +473,19 @@ function mergePositions(races, data) {
 // applySPs removed — SPs now populated automatically from Basic API plan
 
 // Sort races chronologically by time
+function lbsToStone(lbs) {
+  const n = parseInt(lbs);
+  if (!n) return "";
+  return `${Math.floor(n/14)}-${n%14}`;
+}
+
+function fmtHeadgear(hg) {
+  if (!hg) return "";
+  const map = { b:"Blinkers", p:"Cheekpieces", v:"Visor", h:"Hood",
+                t:"Tongue Tie", e:"Eyeshield", c:"Crossed Noseband" };
+  return hg.split("").map(c => map[c] || c).join(", ");
+}
+
 function sortRaces(races) {
   return [...races].sort((a, b) => {
     const ta = (a.time || "").replace(":", "").padStart(4, "0");
@@ -508,6 +535,69 @@ function isRaceOpen(race, day) {
 
 function Loader() { return <div className="loader"><span/><span/><span/></div>; }
 function Toast({ msg }) { return msg ? <div className="toast">{msg}</div> : null; }
+
+// ── ADD TO HOME SCREEN ───────────────────────────────────────────────────────
+function useA2HS() {
+  const [prompt, setPrompt] = useState(null);
+  const [isIOS, setIsIOS]   = useState(false);
+  const [shown,  setShown]  = useState(false);
+
+  useEffect(() => {
+    // Detect iOS
+    const ios = /iphone|ipad|ipod/i.test(navigator.userAgent) && !window.MSStream;
+    const standalone = window.navigator.standalone;
+    setIsIOS(ios && !standalone);
+
+    // Android/Chrome beforeinstallprompt
+    const handler = e => { e.preventDefault(); setPrompt(e); };
+    window.addEventListener('beforeinstallprompt', handler);
+    return () => window.removeEventListener('beforeinstallprompt', handler);
+  }, []);
+
+  async function trigger() {
+    if (prompt) {
+      prompt.prompt();
+      const { outcome } = await prompt.userChoice;
+      if (outcome === 'accepted') setPrompt(null);
+    }
+    setShown(true);
+  }
+
+  const canShow = (prompt || isIOS) && !shown;
+  return { canShow, isIOS, trigger, dismiss: () => setShown(true) };
+}
+
+function A2HSBanner() {
+  const { canShow, isIOS, trigger, dismiss } = useA2HS();
+  if (!canShow) return null;
+  return (
+    <div style={{ background: C.blue, color: "#fff", borderRadius: 12, padding: "12px 16px",
+      display: "flex", alignItems: "center", gap: 12, marginTop: 16, marginBottom: 4,
+      boxShadow: "0 4px 16px rgba(26,127,212,.3)" }}>
+      <span style={{ fontSize: 24 }}>🏇</span>
+      <div style={{ flex: 1, fontSize: 13, lineHeight: 1.5 }}>
+        {isIOS
+          ? <><strong>Add to Home Screen</strong> — tap <strong>Share</strong> then <strong>"Add to Home Screen"</strong></>
+          : <><strong>Add to Home Screen</strong> for quick access on race day</>
+        }
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 6, flexShrink: 0 }}>
+        {!isIOS && (
+          <button onClick={trigger}
+            style={{ background: C.pink, border: "none", color: "#fff", borderRadius: 8,
+              padding: "6px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
+            Add
+          </button>
+        )}
+        <button onClick={dismiss}
+          style={{ background: "rgba(255,255,255,.2)", border: "none", color: "#fff", borderRadius: 8,
+            padding: "6px 12px", fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}>
+          {isIOS ? "Got it" : "Not now"}
+        </button>
+      </div>
+    </div>
+  );
+}
 
 // ── HOME ──────────────────────────────────────────────────────────────────────
 function HomeScreen({ onCreate, onJoin }) {
@@ -827,6 +917,96 @@ function LobbyScreen({ challenge, playerId, onAction, onBack, deepLink }) {
   );
 }
 
+// ── RUNNER CARD (slide-up detail panel) ──────────────────────────────────────
+function RunnerCard({ horse, onClose }) {
+  if (!horse) return null;
+  return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 500, display: "flex", flexDirection: "column", justifyContent: "flex-end" }}
+      onClick={onClose}>
+      <div style={{ background: "rgba(0,0,0,.45)", position: "absolute", inset: 0 }} />
+      <div onClick={e => e.stopPropagation()}
+        style={{ background: "#fff", borderRadius: "20px 20px 0 0", padding: "24px 20px 40px",
+          position: "relative", zIndex: 1, maxHeight: "80vh", overflowY: "auto",
+          boxShadow: "0 -8px 40px rgba(0,0,0,.2)", animation: "slideUp .25s ease" }}>
+        <style>{`@keyframes slideUp { from{transform:translateY(100%)} to{transform:translateY(0)} }`}</style>
+
+        {/* Handle */}
+        <div style={{ width: 40, height: 4, background: "#ddd", borderRadius: 2, margin: "0 auto 20px" }} />
+
+        {/* Header: silk + name */}
+        <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 18 }}>
+          {horse.silkUrl && (
+            <img src={horse.silkUrl} alt="silk" style={{ width: 48, height: 48, objectFit: "contain" }} />
+          )}
+          <div>
+            <div style={{ fontSize: 20, fontWeight: 700, color: C.text }}>
+              {horse.number ? `${horse.number}. ` : ""}{horse.name}
+            </div>
+            <div style={{ fontSize: 13, color: C.muted, marginTop: 2 }}>
+              {[horse.age && `${horse.age}yo`, horse.sex, horse.colour].filter(Boolean).join(" · ")}
+            </div>
+          </div>
+        </div>
+
+        {/* Stats grid */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 16 }}>
+          {[
+            ["Form",     horse.form || "–"],
+            ["OR",       horse.ofr  || "–"],
+            ["TS",       horse.ts   || "–"],
+            ["Weight",   horse.lbs ? lbsToStone(horse.lbs) : "–"],
+            ["Draw",     horse.draw || "–"],
+            ["Headgear", horse.headgear || "–"],
+          ].map(([label, val]) => (
+            <div key={label} style={{ background: C.bg, borderRadius: 10, padding: "10px 12px", textAlign: "center" }}>
+              <div style={{ fontSize: 10, letterSpacing: 2, color: C.muted, fontWeight: 600, textTransform: "uppercase", marginBottom: 4 }}>{label}</div>
+              <div style={{ fontSize: 16, fontWeight: 700, color: C.text }}>{val}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* Jockey */}
+        <div style={{ background: C.bg, borderRadius: 10, padding: "10px 14px", marginBottom: 8 }}>
+          <div style={{ fontSize: 11, letterSpacing: 1.5, color: C.muted, fontWeight: 600, textTransform: "uppercase", marginBottom: 2 }}>Jockey</div>
+          <div style={{ fontSize: 15, fontWeight: 600, color: C.text }}>{horse.jockey || "–"}</div>
+        </div>
+
+        {/* Trainer + form */}
+        <div style={{ background: C.bg, borderRadius: 10, padding: "10px 14px", marginBottom: 8 }}>
+          <div style={{ fontSize: 11, letterSpacing: 1.5, color: C.muted, fontWeight: 600, textTransform: "uppercase", marginBottom: 2 }}>Trainer</div>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div style={{ fontSize: 15, fontWeight: 600, color: C.text }}>{horse.trainer || "–"}</div>
+            {horse.trainerForm && (
+              <div style={{ fontSize: 12, color: C.muted, textAlign: "right" }}>
+                <span style={{ fontWeight: 700, color: C.blue }}>{horse.trainerForm.wins}/{horse.trainerForm.runs}</span>
+                <span style={{ marginLeft: 4 }}>({horse.trainerForm.percent}%) last 14 days</span>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Breeding */}
+        {(horse.sire || horse.dam) && (
+          <div style={{ background: C.bg, borderRadius: 10, padding: "10px 14px", marginBottom: 16 }}>
+            <div style={{ fontSize: 11, letterSpacing: 1.5, color: C.muted, fontWeight: 600, textTransform: "uppercase", marginBottom: 2 }}>Breeding</div>
+            <div style={{ fontSize: 13, color: C.muted }}>
+              {horse.sire && <span>By <strong style={{ color: C.text }}>{horse.sire}</strong></span>}
+              {horse.dam && <span> · Dam: <strong style={{ color: C.text }}>{horse.dam}</strong></span>}
+            </div>
+          </div>
+        )}
+
+        <button onClick={onClose}
+          style={{ width: "100%", padding: "14px", background: C.pink, color: "#fff",
+            border: "none", borderRadius: 12, fontSize: 15, fontWeight: 700,
+            cursor: "pointer", fontFamily: "inherit" }}>
+          Close
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ── PICKS ─────────────────────────────────────────────────────────────────────
 function PicksScreen({ challenge, playerId, onSubmit, onBack, editMode = false }) {
   const player    = challenge.players?.[playerId];
@@ -869,6 +1049,7 @@ function PicksScreen({ challenge, playerId, onSubmit, onBack, editMode = false }
   }
 
   const [napWarning, setNapWarning] = useState(false);
+  const [selectedRunner, setSelectedRunner] = useState(null);
 
   async function save() {
     // Prompt for NAP if not set and not already submitted
@@ -891,6 +1072,7 @@ function PicksScreen({ challenge, playerId, onSubmit, onBack, editMode = false }
 
   return (
     <div style={{ paddingTop: 22 }} className="fade">
+      <RunnerCard horse={selectedRunner} onClose={() => setSelectedRunner(null)} />
       <Toast msg={toast} />
       <button className="btn btn-outline btn-sm" style={{ marginBottom: 18 }} onClick={onBack}>← Back</button>
       <div className="eyebrow">2pts win · 1pt e/w each part · NAP doubles your stake</div>
@@ -1000,11 +1182,36 @@ function PicksScreen({ challenge, playerId, onSubmit, onBack, editMode = false }
                     <button key={h.id}
                       className={`hbtn${isPicked ? (betType === "ew" ? " ew-picked" : " win-picked") : ""}${isPicked && isNap ? " nap-outline" : ""}`}
                       onClick={() => pickHorse(race.id, h.id)}>
-                      <span style={{ textAlign: "left" }}>
-                        <span style={{ fontWeight: isPicked ? 600 : 400 }}>{h.number ? `${h.number}. ` : ""}{h.name}</span>
-                        {h.jockey && <span style={{ display: "block", fontSize: 11, opacity: .6, marginTop: 1 }}>{h.jockey}</span>}
+                      <span style={{ display: "flex", alignItems: "center", gap: 8, flex: 1, minWidth: 0 }}>
+                        {h.silkUrl
+                          ? <img src={h.silkUrl} alt="" style={{ width: 28, height: 28, objectFit: "contain", flexShrink: 0 }} />
+                          : <span style={{ width: 28, height: 28, background: isPicked ? "rgba(255,255,255,.25)" : C.border,
+                              borderRadius: 4, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
+                              fontSize: 11, fontWeight: 700, color: isPicked ? "#fff" : C.muted }}>
+                              {h.number || "?"}
+                            </span>
+                        }
+                        <span style={{ textAlign: "left", minWidth: 0 }}>
+                          <span style={{ fontWeight: isPicked ? 600 : 400, display: "block", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                            {h.name}
+                          </span>
+                          {h.trainer && <span style={{ display: "block", fontSize: 11, opacity: .65, marginTop: 1,
+                            whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                            T: {h.trainer}
+                          </span>}
+                        </span>
                       </span>
-                      <span className="sp-chip">SP</span>
+                      <span style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4, flexShrink: 0, marginLeft: 4 }}>
+                        <button
+                          onClick={e => { e.stopPropagation(); setSelectedRunner(h); }}
+                          style={{ background: "none", border: "none", cursor: "pointer", padding: "2px 4px",
+                            fontSize: 14, opacity: .5, lineHeight: 1 }}>ℹ️</button>
+                        {(h.ofr || h.form) && (
+                          <span style={{ fontSize: 10, fontWeight: 600, color: isPicked ? "rgba(255,255,255,.7)" : C.muted }}>
+                            {h.ofr ? `OR${h.ofr}` : h.form}
+                          </span>
+                        )}
+                      </span>
                     </button>
                   );
                 })}
@@ -1640,6 +1847,7 @@ export default function App() {
 
         {screen === "home" && (
           <>
+            <A2HSBanner />
             {session && (
               <div className="card" style={{ marginTop: 20, marginBottom: 4, textAlign: "center", borderColor: C.blue, background: "#f0f7ff" }}>
                 <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 4 }}>👋 Welcome back, {session.playerName}!</div>
