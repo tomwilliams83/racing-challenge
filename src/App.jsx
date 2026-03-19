@@ -1181,25 +1181,29 @@ function PicksScreen({ challenge, playerId, onSubmit, onBack, editMode = false }
                           <span style={{ fontWeight: isPicked ? 600 : 400, display: "block", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                             {h.name}
                           </span>
-                          {h.jockey && <span style={{ display: "block", fontSize: 11, opacity: .65, marginTop: 1,
-                            whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                            {h.jockey}
+                          {h.jockey && <span style={{ display: "block", fontSize: 11, marginTop: 1,
+                            whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", color: isPicked ? "rgba(255,255,255,.75)" : C.muted }}>
+                            <span style={{ opacity: .7 }}>J: </span><strong>{h.jockey}</strong>
+                          </span>}
+                          {h.trainer && <span style={{ display: "block", fontSize: 11, marginTop: 1,
+                            whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", color: isPicked ? "rgba(255,255,255,.75)" : C.muted }}>
+                            <span style={{ opacity: .7 }}>T: </span><strong>{h.trainer}</strong>
                           </span>}
                         </span>
                       </span>
-                      <span style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 3, flexShrink: 0, marginLeft: 4 }}>
+                      <span style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 3, flexShrink: 0, marginLeft: 6 }}>
                         <button
                           onClick={e => { e.stopPropagation(); setSelectedRunner(h); }}
                           style={{ background: "none", border: "none", cursor: "pointer", padding: "2px 4px",
                             fontSize: 13, opacity: .5, lineHeight: 1 }}>ℹ️</button>
                         {h.form && (
-                          <span style={{ fontSize: 10, fontWeight: 700, color: isPicked ? "rgba(255,255,255,.8)" : C.text }}>
-                            {h.form}
+                          <span style={{ fontSize: 10, color: isPicked ? "rgba(255,255,255,.8)" : C.text, textAlign: "right" }}>
+                            <span style={{ opacity: .6 }}>Form: </span><strong>{h.form}</strong>
                           </span>
                         )}
                         {h.lbs && (
-                          <span style={{ fontSize: 10, fontWeight: 600, color: isPicked ? "rgba(255,255,255,.65)" : C.muted }}>
-                            {lbsToStone(h.lbs)}
+                          <span style={{ fontSize: 10, color: isPicked ? "rgba(255,255,255,.65)" : C.muted, textAlign: "right" }}>
+                            <span style={{ opacity: .6 }}>Wgt: </span><strong>{lbsToStone(h.lbs)}</strong>
                           </span>
                         )}
                       </span>
