@@ -232,6 +232,7 @@ const GLOBAL_CSS = `
   .btn-nap-off { background: ${C.bg}; border: 1.5px solid ${C.border}; color: ${C.muted}; padding: 7px 16px; border-radius: 20px; font-size: 13px; font-weight: 600; cursor: pointer; font-family: 'DM Sans',sans-serif; transition: all .15s; }
   .btn-nap-off:hover { border-color: #ff8c00; color: #ff8c00; }
   .hbtn.nap-outline { outline: 3px solid #ff8c00; outline-offset: 2px; }
+  .hbtn.has-pick { border-color: ${C.pink}; background: ${C.pinkBg}; }
 
   .sp-entry-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
   @media(max-width:500px){ .sp-entry-grid { grid-template-columns: 1fr; } }
@@ -391,12 +392,15 @@ function parseRacecards(data) {
 
 // Merge positions only from API (no SP available on free plan)
 function normTime(t) {
-  // Convert any time string to 24hr "HH:MM" for comparison
+  // Convert any time to 24hr "HH:MM" for comparison
+  // Handles: "2:30" (12hr AM/PM ambiguous), "14:30" (already 24hr)
+  // Racing times are always afternoon/evening so hour < 10 means add 12
   if (!t) return "";
   const m = String(t).trim().match(/(\d{1,2}):(\d{2})/);
   if (!m) return "";
   const h = parseInt(m[1]);
-  return `${h < 10 ? h + 12 : h}:${m[2]}`;
+  const h24 = h < 10 ? h + 12 : h; // 1-9 -> 13-21, 10-23 unchanged
+  return `${String(h24).padStart(2,"0")}:${m[2]}`;
 }
 
 function normCourse(c) {
@@ -432,14 +436,14 @@ function mergePositions(races, data) {
       return true;
     });
     if (res) { console.log(`  ✅ ${race.course} ${race.time} matched by ID`); return res; }
-    // 2. Course + time + date — all three must match to avoid cross-day false matches
+    // 2. Course + time + date
+    // Only block if BOTH sides have a date and they differ — missing date = no block
+    const raceDate = race.date || "";
     res = list.find(r => {
       if (r._time !== rTime) return false;
       if (!(r._course.includes(rCourse) || rCourse.includes(r._course))) return false;
-      // If either side has a date, they must match — this prevents tomorrow's races
-      // being matched against today's results when the course+time coincidentally overlaps
-      if (r._date && race.date && r._date !== race.date) {
-        console.log(`  ⚠️ Course+time match for ${race.course} ${race.time} BLOCKED — result date ${r._date} ≠ race date ${race.date}`);
+      if (r._date && raceDate && r._date !== raceDate) {
+        console.log(`  ⚠️ Blocked ${race.course} ${race.time} — result date ${r._date} ≠ race date ${raceDate}`);
         return false;
       }
       return true;
@@ -1379,6 +1383,8 @@ function ResultsScreen({ challenge, playerId, isCreator, onBack }) {
 
   const races   = sortRaces(ch.selectedRaces || []);
   const players = Object.values(ch.players || {});
+  // Picks are visible to all once the first race has gone off
+  const isLocked = races.length > 0 && raceTimeToDate(races[0].time, ch.day) <= new Date();
 
   // Real-time listener — all players see updates instantly
   useEffect(() => {
@@ -1624,6 +1630,18 @@ function ResultsScreen({ challenge, playerId, isCreator, onBack }) {
         <div className="fade">
           {races.map((race, i) => {
             const winner = race.runners.find(h => parseInt(h.position) === 1);
+
+            // Build a map of horseId -> [players who picked it] for this race — only show once locked
+            const pickerMap = {};
+            if (isLocked) {
+              players.forEach(p => {
+                const pick = p.picks?.[race.id];
+                if (!pick?.horseId) return;
+                if (!pickerMap[pick.horseId]) pickerMap[pick.horseId] = [];
+                pickerMap[pick.horseId].push({ name: p.name, betType: pick.betType || "win", isNap: p.napRaceId === race.id });
+              });
+            }
+
             return (
               <div key={race.id} className="card" style={{ marginBottom: 12 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 8, marginBottom: 10 }}>
@@ -1646,10 +1664,31 @@ function ResultsScreen({ challenge, playerId, isCreator, onBack }) {
                     const pos     = parseInt(h.position);
                     const isWin   = pos === 1;
                     const isPlace = !isWin && pos && race.ewTerms && pos <= race.ewTerms.places;
+                    const pickers = pickerMap[h.id] || [];
+                    const hasPickers = pickers.length > 0;
                     return (
-                      <button key={h.id} className={`hbtn${isWin ? " won" : isPlace ? " placed" : ""}`} style={{ cursor: "default" }}>
-                        <span>{pos ? `${pos}. ` : ""}{h.name}{isPlace ? <span style={{ fontSize: 11, marginLeft: 4, opacity: .7 }}> P</span> : ""}</span>
-                        <span className="sp-chip">{h.sp ? fmtSP(h.sp) : "SP"}</span>
+                      <button key={h.id} className={`hbtn${isWin ? " won" : isPlace ? " placed" : hasPickers ? " has-pick" : ""}`}
+                        style={{ cursor: "default", flexDirection: "column", alignItems: "stretch", gap: 6 }}>
+                        <span style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                          <span style={{ fontWeight: hasPickers ? 700 : 400 }}>
+                            {pos ? `${pos}. ` : ""}{h.name}{isPlace ? <span style={{ fontSize: 11, marginLeft: 4, opacity: .7 }}> P</span> : ""}
+                          </span>
+                          <span className="sp-chip">{h.sp ? fmtSP(h.sp) : "SP"}</span>
+                        </span>
+                        {hasPickers && (
+                          <span style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 2 }}>
+                            {pickers.map((pk, pi) => (
+                              <span key={pi} style={{
+                                fontSize: 11, fontWeight: 600, padding: "2px 7px", borderRadius: 20,
+                                background: pk.isNap ? "#fff8ee" : pk.betType === "ew" ? "#eff8ff" : C.pinkBg,
+                                color: pk.isNap ? "#b36000" : pk.betType === "ew" ? C.blue : C.pink,
+                                border: `1px solid ${pk.isNap ? "#ffb700" : pk.betType === "ew" ? C.borderDk : C.pinkLt}`,
+                              }}>
+                                {pk.name}{pk.isNap ? " ⭐" : pk.betType === "ew" ? " EW" : ""}
+                              </span>
+                            ))}
+                          </span>
+                        )}
                       </button>
                     );
                   })}
