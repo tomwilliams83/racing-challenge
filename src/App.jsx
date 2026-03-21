@@ -372,6 +372,7 @@ function parseRacecards(data) {
     return {
       id: r.race_id || r.id || `${r.course}-${r.off}`,
       course: r.course || "Unknown",
+      date: r.date || r.race_date || "",
       time: (t => {
         const mm = String(t || "").match(/(\d{1,2}):(\d{2})/);
         if (!mm) return t || "";
@@ -412,6 +413,8 @@ function mergePositions(races, data) {
     _course:  normCourse(r.course || r.venue || ""),
     // Results API uses 'off' field for time, not 'off_time'
     _time:    normTime(r.off || r.off_time || r.time || ""),
+    // Capture the result date so we never match tomorrow's races against today's results
+    _date:    r.date || r.race_date || "",
     runners:  toArr(r.runners),
   }));
 
@@ -421,14 +424,29 @@ function mergePositions(races, data) {
   function findResult(race) {
     const rCourse = normCourse(race.course);
     const rTime   = normTime(race.time);
-    // 1. Direct ID match
-    let res = list.find(r => (r.race_id || r.id) === race.id);
+    // 1. Direct ID match — still check date matches if both have dates
+    let res = list.find(r => {
+      if ((r.race_id || r.id) !== race.id) return false;
+      // If result has a date, it must match the race date
+      if (r._date && race.date && r._date !== race.date) return false;
+      return true;
+    });
     if (res) { console.log(`  ✅ ${race.course} ${race.time} matched by ID`); return res; }
-    // 2. Course + time — BOTH must match (never course alone to avoid false matches)
-    res = list.find(r => r._time === rTime && (r._course.includes(rCourse) || rCourse.includes(r._course)));
-    if (res) { console.log(`  ✅ ${race.course} ${race.time} matched by course+time`); return res; }
-    console.log(`  ❌ No match for ${race.course} ${race.time} (looking for course=${rCourse} time=${rTime})`);
-    if (list.length) console.log(`     Available: ${list.slice(0,5).map(r => `${r._course} ${r._time}`).join(", ")}`);
+    // 2. Course + time + date — all three must match to avoid cross-day false matches
+    res = list.find(r => {
+      if (r._time !== rTime) return false;
+      if (!(r._course.includes(rCourse) || rCourse.includes(r._course))) return false;
+      // If either side has a date, they must match — this prevents tomorrow's races
+      // being matched against today's results when the course+time coincidentally overlaps
+      if (r._date && race.date && r._date !== race.date) {
+        console.log(`  ⚠️ Course+time match for ${race.course} ${race.time} BLOCKED — result date ${r._date} ≠ race date ${race.date}`);
+        return false;
+      }
+      return true;
+    });
+    if (res) { console.log(`  ✅ ${race.course} ${race.time} matched by course+time+date`); return res; }
+    console.log(`  ❌ No match for ${race.course} ${race.time} (looking for course=${rCourse} time=${rTime} date=${race.date || "?"})`);
+    if (list.length) console.log(`     Available: ${list.slice(0,5).map(r => `${r._course} ${r._time} ${r._date}`).join(", ")}`);
     return null;
   }
 
@@ -617,10 +635,10 @@ function HomeScreen({ onCreate, onJoin }) {
       <div style={{ textAlign: "center", marginBottom: 36 }}>
         <div style={{ fontSize: 58, marginBottom: 12 }}>🏇</div>
         <h1 className="serif" style={{ fontSize: "clamp(28px,5vw,46px)", color: C.text, marginBottom: 12 }}>
-          Racing <span style={{ color: C.pink }}>Challenge</span>
+          Nags <span style={{ color: C.pink }}>Challenge</span>
         </h1>
         <p style={{ color: C.muted, fontSize: 17, maxWidth: 440, margin: "0 auto", lineHeight: 1.65 }}>
-          Pick a winner — or go each-way — in each race and see who banks the best returns at Starting Price.
+          Pick a winner — or go each-way — in each race and see who banks the best returns at Starting Price. 🍾
         </p>
       </div>
 
@@ -775,6 +793,8 @@ function SetupScreen({ challenge, onSave, onBack }) {
   const [error,     setError]     = useState("");
   const [toast,     showToast]    = useToast();
 
+  const [itvCard,   setItvCard]   = useState(null); // { raceIds, label }
+
   async function load() {
     setLoading(true); setError("");
     try {
@@ -782,8 +802,21 @@ function SetupScreen({ challenge, onSave, onBack }) {
       const parsed = parseRacecards(data);
       setRacecards(parsed);
       if (!parsed.length) setError("No races found.");
+      // Also fetch ITV card
+      try {
+        const itv = await apiGet('/api/itv');
+        if (itv.raceIds?.length) setItvCard(itv);
+      } catch {}
     } catch (e) { setError(e.message); }
     setLoading(false);
+  }
+
+  function loadITVCard() {
+    if (!itvCard?.raceIds?.length) return;
+    const itvSet = new Set(itvCard.raceIds);
+    // Select all races matching ITV race IDs
+    setSelected(new Set(racecards.filter(r => itvSet.has(r.id)).map(r => r.id)));
+    showToast(`${itvCard.label || "ITV Card"} loaded ✅`);
   }
 
   function toggle(id) {
@@ -816,6 +849,16 @@ function SetupScreen({ challenge, onSave, onBack }) {
         <button className="btn btn-blue" onClick={load} disabled={loading} style={{ width: "100%" }}>
           {loading ? "Loading…" : "Load Races"}
         </button>
+        {itvCard?.raceIds?.length > 0 && racecards.length > 0 && (
+          <div style={{ marginTop: 10 }}>
+            <button className="btn btn-pink" onClick={loadITVCard} style={{ width: "100%" }}>
+              📺 Load {itvCard.label || "ITV Card"}
+            </button>
+            <div style={{ fontSize: 12, color: C.muted, marginTop: 6, textAlign: "center" }}>
+              Pre-selects this week's ITV featured races
+            </div>
+          </div>
+        )}
         {error && <div className="err" style={{ marginTop: 12 }}>{error}</div>}
       </div>
 
@@ -1404,7 +1447,9 @@ function ResultsScreen({ challenge, playerId, isCreator, onBack }) {
   }, [ch.code]);
 
   // Auto-fetch results every 60s while any races are still pending
+  // Never poll if challenge is set up for tomorrow — today's results can't match tomorrow's races
   useEffect(() => {
+    if (ch.day === "tomorrow") return; // no results available for tomorrow's races
     const pendingRaces = (ch.selectedRaces || []).filter(r => !r.resultIn);
     if (!pendingRaces.length) return;
     let cancelled = false;
@@ -1443,9 +1488,11 @@ function ResultsScreen({ challenge, playerId, isCreator, onBack }) {
       const horse   = race.runners.find(h => h.id === hId);
       if (!horse) return { race, horse: null, betType, isNap, ret: { total: 0, win: 0, place: 0, staked: isNap ? 4 : 2 } };
       const ret = calcSelectionReturn(horse.sp, betType, horse.position, race.ewTerms, isNap, horse.spDec ?? null);
-      totalReturn += ret.total;
-      // Only count staked for races that have actually run
-      if (race.resultIn) totalStaked += ret.staked;
+      // Only count staked and returns for races that have actually run
+      if (race.resultIn) {
+        totalReturn += ret.total;
+        totalStaked += ret.staked;
+      }
       if (horse.position === 1) wins++;
       else if (ret.place > 0) places++;
       return { race, horse, betType, isNap, ret };
@@ -1819,8 +1866,8 @@ export default function App() {
       <style>{GLOBAL_CSS}</style>
 
       <div className="hdr">
-        <div className="hdr-eye">THE RACING CHALLENGE</div>
-        <div className="hdr-title">🏇 Racing <span className="hdr-pink">Challenge</span></div>
+        <div className="hdr-eye">THE NAGS CHALLENGE</div>
+        <div className="hdr-title">🐴 Nags <span className="hdr-pink">Challenge</span></div>
         <div className="hdr-sub">PICK · COMPETE · COLLECT</div>
       </div>
 
