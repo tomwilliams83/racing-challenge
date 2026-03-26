@@ -1,0 +1,627 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Nags Challenge — Pick. Compete. Collect.</title>
+  <meta name="description" content="The free-to-play horse racing challenge. Pick a winner in every race, compete with friends on a live leaderboard, and sharpen your racing knowledge — no money required." />
+  <meta property="og:title" content="Nags Challenge" />
+  <meta property="og:description" content="Pick winners. Beat your mates. No money required." />
+  <meta property="og:image" content="/icons/icon-512.png" />
+  <link rel="icon" href="/icons/icon-192.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600;700&family=DM+Serif+Display:ital@0;1&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --pink:    #ff007f;
+      --blue:    #1a7fd4;
+      --dark:    #0d1a2e;
+      --light:   #eef6fd;
+      --muted:   #5a8aaa;
+      --white:   #ffffff;
+      --gold:    #ffb700;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      background: var(--dark);
+      color: var(--white);
+      font-family: 'DM Sans', sans-serif;
+      -webkit-font-smoothing: antialiased;
+      overflow-x: hidden;
+    }
+
+    /* ── HERO ── */
+    .hero {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 40px 24px 80px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .hero::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background:
+        radial-gradient(ellipse 80% 60% at 50% 0%, rgba(26,127,212,.35) 0%, transparent 70%),
+        radial-gradient(ellipse 50% 40% at 80% 100%, rgba(255,0,127,.2) 0%, transparent 60%);
+      pointer-events: none;
+    }
+
+    /* Animated grass strip */
+    .hero::after {
+      content: "";
+      position: absolute;
+      bottom: 0; left: 0; right: 0;
+      height: 6px;
+      background: linear-gradient(90deg, #00b86b, #00d4a0, #00b86b);
+      background-size: 200% 100%;
+      animation: shimmer 3s linear infinite;
+    }
+
+    @keyframes shimmer { to { background-position: 200% 0; } }
+
+    .hero-logo {
+      width: 120px;
+      height: 120px;
+      border-radius: 28px;
+      box-shadow: 0 20px 60px rgba(255,0,127,.3), 0 0 0 3px rgba(255,255,255,.1);
+      margin-bottom: 28px;
+      animation: logoIn .8s cubic-bezier(.34,1.56,.64,1) both;
+    }
+
+    @keyframes logoIn {
+      from { opacity: 0; transform: scale(.6) translateY(20px); }
+      to   { opacity: 1; transform: scale(1) translateY(0); }
+    }
+
+    .hero-eyebrow {
+      font-size: 11px;
+      letter-spacing: 5px;
+      color: var(--gold);
+      font-weight: 700;
+      text-transform: uppercase;
+      margin-bottom: 16px;
+      animation: fadeUp .6s .2s both;
+    }
+
+    .hero-title {
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: clamp(64px, 14vw, 120px);
+      line-height: .95;
+      letter-spacing: 2px;
+      margin-bottom: 8px;
+      animation: fadeUp .6s .3s both;
+    }
+
+    .hero-title span { color: var(--pink); }
+
+    .hero-sub {
+      font-family: 'DM Serif Display', serif;
+      font-size: clamp(20px, 4vw, 32px);
+      color: rgba(255,255,255,.7);
+      margin-bottom: 32px;
+      font-style: italic;
+      animation: fadeUp .6s .4s both;
+    }
+
+    .hero-desc {
+      font-size: 17px;
+      color: rgba(255,255,255,.6);
+      max-width: 520px;
+      line-height: 1.7;
+      margin-bottom: 44px;
+      animation: fadeUp .6s .5s both;
+    }
+
+    .hero-cta {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      background: var(--pink);
+      color: #fff;
+      font-family: 'DM Sans', sans-serif;
+      font-size: 18px;
+      font-weight: 700;
+      padding: 18px 40px;
+      border-radius: 50px;
+      text-decoration: none;
+      box-shadow: 0 8px 32px rgba(255,0,127,.5);
+      transition: transform .2s, box-shadow .2s;
+      animation: fadeUp .6s .6s both;
+    }
+
+    .hero-cta:hover {
+      transform: translateY(-3px);
+      box-shadow: 0 14px 40px rgba(255,0,127,.6);
+    }
+
+    .hero-cta-sub {
+      display: block;
+      margin-top: 14px;
+      font-size: 13px;
+      color: rgba(255,255,255,.4);
+      animation: fadeUp .6s .7s both;
+    }
+
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(24px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    /* ── HOW IT WORKS ── */
+    .section {
+      padding: 100px 24px;
+      max-width: 1100px;
+      margin: 0 auto;
+    }
+
+    .section-label {
+      font-size: 11px;
+      letter-spacing: 5px;
+      color: var(--pink);
+      font-weight: 700;
+      text-transform: uppercase;
+      margin-bottom: 16px;
+      text-align: center;
+    }
+
+    .section-title {
+      font-family: 'DM Serif Display', serif;
+      font-size: clamp(36px, 5vw, 56px);
+      text-align: center;
+      margin-bottom: 64px;
+      line-height: 1.15;
+    }
+
+    .steps {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 24px;
+    }
+
+    .step {
+      background: rgba(255,255,255,.04);
+      border: 1px solid rgba(255,255,255,.08);
+      border-radius: 20px;
+      padding: 32px 28px;
+      position: relative;
+      transition: transform .2s, border-color .2s;
+    }
+
+    .step:hover {
+      transform: translateY(-4px);
+      border-color: rgba(255,0,127,.3);
+    }
+
+    .step-num {
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 72px;
+      line-height: 1;
+      color: rgba(255,255,255,.06);
+      position: absolute;
+      top: 16px;
+      right: 20px;
+    }
+
+    .step-icon { font-size: 36px; margin-bottom: 16px; }
+
+    .step-title {
+      font-family: 'DM Serif Display', serif;
+      font-size: 22px;
+      margin-bottom: 10px;
+      color: var(--white);
+    }
+
+    .step-desc {
+      font-size: 15px;
+      color: rgba(255,255,255,.55);
+      line-height: 1.65;
+    }
+
+    /* ── USPs ── */
+    .usps {
+      background: rgba(26,127,212,.08);
+      border-top: 1px solid rgba(26,127,212,.2);
+      border-bottom: 1px solid rgba(26,127,212,.2);
+    }
+
+    .usp-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 0;
+    }
+
+    .usp {
+      padding: 60px 48px;
+      border-right: 1px solid rgba(255,255,255,.07);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .usp:last-child { border-right: none; }
+
+    .usp::before {
+      content: "";
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 3px;
+    }
+
+    .usp:nth-child(1)::before { background: var(--pink); }
+    .usp:nth-child(2)::before { background: var(--gold); }
+    .usp:nth-child(3)::before { background: #00b86b; }
+
+    .usp-icon { font-size: 44px; margin-bottom: 20px; }
+
+    .usp-title {
+      font-family: 'DM Serif Display', serif;
+      font-size: 26px;
+      margin-bottom: 14px;
+      line-height: 1.2;
+    }
+
+    .usp-desc {
+      font-size: 16px;
+      color: rgba(255,255,255,.55);
+      line-height: 1.7;
+    }
+
+    @media(max-width: 768px) {
+      .usp { border-right: none; border-bottom: 1px solid rgba(255,255,255,.07); padding: 48px 28px; }
+      .usp:last-child { border-bottom: none; }
+    }
+
+    /* ── LEADERBOARD MOCKUP ── */
+    .mockup-section {
+      padding: 100px 24px;
+      max-width: 1100px;
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 64px;
+      align-items: center;
+    }
+
+    @media(max-width: 768px) {
+      .mockup-section { grid-template-columns: 1fr; gap: 48px; }
+    }
+
+    .mockup-text .section-label { text-align: left; }
+    .mockup-text .section-title { text-align: left; font-size: clamp(32px,4vw,48px); margin-bottom: 24px; }
+
+    .mockup-text p {
+      font-size: 17px;
+      color: rgba(255,255,255,.6);
+      line-height: 1.7;
+      margin-bottom: 16px;
+    }
+
+    .mockup {
+      background: #0d2d4a;
+      border-radius: 24px;
+      padding: 24px;
+      box-shadow: 0 40px 80px rgba(0,0,0,.5), 0 0 0 1px rgba(255,255,255,.08);
+    }
+
+    .mockup-header {
+      font-size: 11px;
+      letter-spacing: 3px;
+      color: var(--muted);
+      font-weight: 600;
+      text-transform: uppercase;
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .live-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: #00b86b;
+      animation: pulse 1.4s infinite;
+    }
+
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
+
+    .lb-row {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 14px 16px;
+      border-radius: 12px;
+      margin-bottom: 8px;
+      background: rgba(255,255,255,.04);
+    }
+
+    .lb-row.first {
+      background: rgba(255,0,127,.12);
+      border: 1px solid rgba(255,0,127,.25);
+    }
+
+    .lb-rank {
+      font-family: 'DM Serif Display', serif;
+      font-size: 20px;
+      width: 28px;
+      text-align: center;
+      color: rgba(255,255,255,.3);
+    }
+
+    .lb-row.first .lb-rank { color: var(--pink); }
+
+    .lb-name { flex: 1; font-weight: 600; font-size: 15px; }
+    .lb-sub { font-size: 12px; color: rgba(255,255,255,.4); margin-top: 2px; }
+
+    .lb-pts {
+      font-family: 'DM Serif Display', serif;
+      font-size: 20px;
+      color: var(--pink);
+    }
+
+    .lb-profit { font-size: 12px; color: #00b86b; font-weight: 600; margin-top: 2px; text-align: right; }
+
+    /* ── CTA SECTION ── */
+    .cta-section {
+      padding: 120px 24px;
+      text-align: center;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .cta-section::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(ellipse 70% 80% at 50% 50%, rgba(255,0,127,.12) 0%, transparent 70%);
+      pointer-events: none;
+    }
+
+    .cta-section .hero-title { margin-bottom: 20px; }
+
+    .cta-section p {
+      font-size: 18px;
+      color: rgba(255,255,255,.55);
+      max-width: 480px;
+      margin: 0 auto 44px;
+      line-height: 1.65;
+    }
+
+    /* ── FOOTER ── */
+    footer {
+      border-top: 1px solid rgba(255,255,255,.07);
+      padding: 40px 24px;
+      text-align: center;
+      font-size: 13px;
+      color: rgba(255,255,255,.25);
+    }
+
+    footer a { color: rgba(255,255,255,.4); text-decoration: none; }
+    footer a:hover { color: var(--pink); }
+
+    .footer-inner {
+      max-width: 1100px;
+      margin: 0 auto;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 16px;
+    }
+
+    /* ── SCROLL REVEALS ── */
+    .reveal {
+      opacity: 0;
+      transform: translateY(32px);
+      transition: opacity .7s ease, transform .7s ease;
+    }
+    .reveal.visible {
+      opacity: 1;
+      transform: none;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- HERO -->
+  <section class="hero">
+    <img src="/icons/icon-192.png" alt="Nags Challenge" class="hero-logo" />
+    <div class="hero-eyebrow">Free to play · No account needed</div>
+    <h1 class="hero-title">Nags<br/><span>Challenge</span></h1>
+    <p class="hero-sub">Pick. Compete. Collect.</p>
+    <p class="hero-desc">
+      The racing game you play with your mates. Pick a horse in every race,
+      track your returns on a live leaderboard, and see who knows their nags best.
+      No money. No risk. Just racing.
+    </p>
+    <a href="/app" class="hero-cta">
+      🐴 Play Now — It's Free
+    </a>
+    <span class="hero-cta-sub">Works on any phone, tablet or computer</span>
+  </section>
+
+  <!-- HOW IT WORKS -->
+  <section style="background: rgba(255,255,255,.02); border-top: 1px solid rgba(255,255,255,.06);">
+    <div class="section">
+      <p class="section-label reveal">How it works</p>
+      <h2 class="section-title reveal">Up and running<br/>in under a minute</h2>
+      <div class="steps">
+        <div class="step reveal">
+          <span class="step-num">1</span>
+          <div class="step-icon">🎟️</div>
+          <h3 class="step-title">Create a challenge</h3>
+          <p class="step-desc">Pick your races from the day's card and get a unique 5-letter code. Share it with your mates.</p>
+        </div>
+        <div class="step reveal">
+          <span class="step-num">2</span>
+          <div class="step-icon">🐴</div>
+          <h3 class="step-title">Pick your horses</h3>
+          <p class="step-desc">Choose a winner in each race. Go each-way if you fancy a place. Nominate your NAP to double your stake.</p>
+        </div>
+        <div class="step reveal">
+          <span class="step-num">3</span>
+          <div class="step-icon">⭐</div>
+          <h3 class="step-title">Set your NAP</h3>
+          <p class="step-desc">One race per challenge you can double up. Pick your strongest fancy and back it with conviction.</p>
+        </div>
+        <div class="step reveal">
+          <span class="step-num">4</span>
+          <div class="step-icon">🏆</div>
+          <h3 class="step-title">Watch the leaderboard</h3>
+          <p class="step-desc">Returns calculate automatically at Starting Price. The leaderboard updates live as races finish.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- USPs -->
+  <section class="usps">
+    <div class="usp-grid">
+      <div class="usp reveal">
+        <div class="usp-icon">👥</div>
+        <h3 class="usp-title">Racing is better<br/>with mates</h3>
+        <p class="usp-desc">
+          Turn a Saturday card into a proper occasion. A shared leaderboard gives every race meaning — 
+          whether you're watching trackside, in the pub, or across three different sofas.
+          The banter writes itself when your 14/1 shot romps home.
+        </p>
+      </div>
+      <div class="usp reveal">
+        <div class="usp-icon">🧠</div>
+        <h3 class="usp-title">Sharpen your<br/>eye for a horse</h3>
+        <p class="usp-desc">
+          Having a stake in every race — even a virtual one — forces you to study the form, 
+          weigh up the jockey, consider the going. Week by week you'll develop instincts 
+          that take real punters years to build.
+        </p>
+      </div>
+      <div class="usp reveal">
+        <div class="usp-icon">🍾</div>
+        <h3 class="usp-title">All the thrill,<br/>none of the risk</h3>
+        <p class="usp-desc">
+          The rush of watching your pick come home at 10/1 shouldn't cost you anything. 
+          Nags Challenge gives you that feeling — the anticipation, the heartbreak, 
+          the glory — completely free.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- LEADERBOARD MOCKUP -->
+  <div class="mockup-section reveal">
+    <div class="mockup-text">
+      <p class="section-label">Live leaderboard</p>
+      <h2 class="section-title">Watch the<br/>points roll in</h2>
+      <p>
+        Every race that finishes updates the leaderboard automatically. 
+        No waiting, no manual scoring, no spreadsheets.
+      </p>
+      <p>
+        Returns are calculated at the official Starting Price — 
+        exactly how a bookmaker would pay out. Your 14/1 winner 
+        is worth 30 points. Your mate's 6/4 favourite? 5 points. 
+        Backing winners at big prices wins challenges.
+      </p>
+      <p>
+        The NAP rule adds a strategic twist — one race where you 
+        double your stake. Pick right and you fly up the table. 
+        Pick wrong and everyone knows about it.
+      </p>
+    </div>
+    <div class="mockup">
+      <div class="mockup-header">
+        <span class="live-dot"></span>
+        Leaderboard · Live
+      </div>
+      <div class="lb-row first">
+        <div class="lb-rank">🏆</div>
+        <div>
+          <div class="lb-name">Sarah</div>
+          <div class="lb-sub">2W · 1P · NAP ⭐ · 18pts staked</div>
+        </div>
+        <div>
+          <div class="lb-pts">42.50 pts</div>
+          <div class="lb-profit">+24.50 profit</div>
+        </div>
+      </div>
+      <div class="lb-row">
+        <div class="lb-rank">2</div>
+        <div>
+          <div class="lb-name">Dave</div>
+          <div class="lb-sub">1W · 2P · 16pts staked</div>
+        </div>
+        <div>
+          <div class="lb-pts">28.75 pts</div>
+          <div class="lb-profit">+12.75 profit</div>
+        </div>
+      </div>
+      <div class="lb-row">
+        <div class="lb-rank">3</div>
+        <div>
+          <div class="lb-name">Mike</div>
+          <div class="lb-sub">1W · NAP ⭐ · 18pts staked</div>
+        </div>
+        <div>
+          <div class="lb-pts">18.00 pts</div>
+          <div style="font-size:12px;color:rgba(255,255,255,.3);text-align:right">even</div>
+        </div>
+      </div>
+      <div class="lb-row">
+        <div class="lb-rank">4</div>
+        <div>
+          <div class="lb-name">Jess</div>
+          <div class="lb-sub">0W · 1P · 16pts staked</div>
+        </div>
+        <div>
+          <div class="lb-pts">4.25 pts</div>
+          <div style="font-size:12px;color:#ff3b30;font-weight:600;text-align:right">-11.75</div>
+        </div>
+      </div>
+      <div style="margin-top: 16px; padding-top: 16px; border-top: 1px solid rgba(255,255,255,.08); font-size: 12px; color: rgba(255,255,255,.3); text-align: center;">
+        3 races remaining · updating automatically
+      </div>
+    </div>
+  </div>
+
+  <!-- FINAL CTA -->
+  <section class="cta-section">
+    <p class="section-label reveal">Ready?</p>
+    <h2 class="hero-title reveal">Start your<br/><span>challenge</span></h2>
+    <p class="reveal">
+      Free to play. No account. No download.
+      Just share a code and you're racing.
+    </p>
+    <a href="/app" class="hero-cta reveal">
+      🐴 Create a Challenge
+    </a>
+    <span class="hero-cta-sub reveal">Works on iPhone, Android and desktop</span>
+  </section>
+
+  <!-- FOOTER -->
+  <footer>
+    <div class="footer-inner">
+      <span>© 2026 Nags Challenge</span>
+      <span>For entertainment purposes only · Please gamble responsibly</span>
+      <span><a href="/privacy">Privacy Policy</a></span>
+    </div>
+  </footer>
+
+  <script>
+    // Scroll reveal
+    const observer = new IntersectionObserver(entries => {
+      entries.forEach(e => { if (e.isIntersecting) { e.target.classList.add('visible'); } });
+    }, { threshold: 0.15 });
+    document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
+  </script>
+</body>
+</html>
