@@ -643,7 +643,7 @@ function HomeScreen({ onCreate, onJoin }) {
       <div style={{ textAlign: "center", marginBottom: 36 }}>
         <div style={{ fontSize: 58, marginBottom: 12 }}>🏇</div>
         <h1 className="serif" style={{ fontSize: "clamp(28px,5vw,46px)", color: C.text, marginBottom: 12 }}>
-          Nags <span style={{ color: C.pink }}>Challenge</span>
+          Stable <span style={{ color: C.pink }}>Mates</span>
         </h1>
         <p style={{ color: C.muted, fontSize: 17, maxWidth: 440, margin: "0 auto", lineHeight: 1.65 }}>
           Pick a winner — or go each-way — in each race and see who banks the best returns at Starting Price. 🍾
@@ -1928,8 +1928,8 @@ export default function App() {
       <style>{GLOBAL_CSS}</style>
 
       <div className="hdr">
-        <div className="hdr-eye">THE NAGS CHALLENGE</div>
-        <div className="hdr-title">🐴 Nags <span className="hdr-pink">Challenge</span></div>
+        <div className="hdr-eye">STABLE MATES</div>
+        <div className="hdr-title">🐴 Stable <span className="hdr-pink">Mates</span></div>
         <div className="hdr-sub">PICK · COMPETE · COLLECT</div>
       </div>
 
