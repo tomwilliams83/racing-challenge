@@ -1,7 +1,7 @@
 {
-  "name": "Racing Challenge",
-  "short_name": "Racing",
-  "description": "Pick winners and compete with friends at Starting Price",
+  "name": "Stable Mates",
+  "short_name": "Stable Mates",
+  "description": "The free-to-play horse racing challenge. Pick winners, compete with friends.",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#1a7fd4",
