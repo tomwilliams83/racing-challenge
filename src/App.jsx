@@ -517,20 +517,24 @@ function sortRaces(races) {
 
 // ─── COMPONENTS ───────────────────────────────────────────────────────────────
 // ─── LOCK / NON-RUNNER HELPERS ───────────────────────────────────────────────
-// Parse "HH:MM" time string into today's/tomorrow's Date
+// Parse "HH:MM" time string into a Date object
+// day can be: "today", "tomorrow", or a YYYY-MM-DD date string
 function raceTimeToDate(timeStr, day) {
   if (!timeStr) return null;
   const m = String(timeStr).match(/(\d{1,2}):(\d{2})/);
   if (!m) return null;
   let hours = parseInt(m[1]), mins = parseInt(m[2]);
-  // API returns 12-hour format without AM/PM — UK races run ~10:00-22:00
-  // so any hour < 10 must be PM (e.g. "2:40" = 14:40, "9:50" = 9:50am is fine)
   if (hours < 10) hours += 12;
-  // Get date string in UK timezone (handles BST/GMT automatically)
-  const base = new Date();
-  if (day === "tomorrow") base.setDate(base.getDate() + 1);
-  const ukDate = base.toLocaleDateString("en-CA", { timeZone: "Europe/London" }); // YYYY-MM-DD
-  // Build a UTC time that corresponds to the given clock time in UK/London
+  // Resolve the date
+  let ukDate;
+  if (day && /^\d{4}-\d{2}-\d{2}$/.test(day)) {
+    // Already a YYYY-MM-DD date string — use directly
+    ukDate = day;
+  } else {
+    const base = new Date();
+    if (day === "tomorrow") base.setDate(base.getDate() + 1);
+    ukDate = base.toLocaleDateString("en-CA", { timeZone: "Europe/London" });
+  }
   const ukMidnight = new Date(`${ukDate}T00:00:00Z`);
   const ukOffsetMs = new Date(ukMidnight.toLocaleString("en-US", { timeZone: "Europe/London" })).getTime()
                    - new Date(ukMidnight.toLocaleString("en-US", { timeZone: "UTC" })).getTime();
@@ -791,6 +795,13 @@ function CourseAccordion({ racecards, selected, toggle, onSave }) {
 
 function SetupScreen({ challenge, onSave, onBack }) {
   const [day,       setDay]       = useState("today");
+
+  // Convert today/tomorrow to actual YYYY-MM-DD date for storage
+  function resolveDate(d) {
+    const base = new Date();
+    if (d === "tomorrow") base.setDate(base.getDate() + 1);
+    return base.toLocaleDateString("en-CA", { timeZone: "Europe/London" });
+  }
   const [racecards, setRacecards] = useState([]);
   const [selected,  setSelected]  = useState(new Set());
   const [loading,   setLoading]   = useState(false);
@@ -829,7 +840,7 @@ function SetupScreen({ challenge, onSave, onBack }) {
 
   async function save() {
     const selectedRaces = racecards.filter(r => selected.has(r.id));
-    const updated = { ...challenge, day, racecards, selectedRaceIds: [...selected], selectedRaces, status: "open" };
+    const updated = { ...challenge, day: resolveDate(day), racecards, selectedRaceIds: [...selected], selectedRaces, status: "open" };
     await dbSet(updated.code, updated);
     showToast("Challenge saved!");
     setTimeout(() => onSave(updated), 600);
@@ -1384,7 +1395,7 @@ function ResultsScreen({ challenge, playerId, isCreator, onBack }) {
   const races   = sortRaces(ch.selectedRaces || []);
   const players = Object.values(ch.players || {});
   // Picks are visible to all once the first race has gone off
-  const isLocked = races.length > 0 && raceTimeToDate(races[0].time, ch.day) <= new Date();
+  const isLocked = races.length > 0 && raceTimeToDate(races[0].time, "today") <= new Date();
 
   // Real-time listener — all players see updates instantly
   useEffect(() => {
@@ -1399,7 +1410,11 @@ function ResultsScreen({ challenge, playerId, isCreator, onBack }) {
     const checkNRs = async () => {
       if (cancelled) return;
       try {
-        const data = await apiGet(`/api/racecards?day=${ch.day}`);
+        // API only accepts 'today' or 'tomorrow' — derive from stored date
+        const todayStr = new Date().toLocaleDateString("en-CA", { timeZone: "Europe/London" });
+        const tomorrowStr = new Date(Date.now() + 86400000).toLocaleDateString("en-CA", { timeZone: "Europe/London" });
+        const apiDay = ch.day === tomorrowStr ? "tomorrow" : "today";
+        const data = await apiGet(`/api/racecards?day=${apiDay}`);
         const fresh = await dbGet(ch.code);
         if (!fresh || cancelled) return;
         const latestRaces = parseRacecards(data);
@@ -1453,9 +1468,16 @@ function ResultsScreen({ challenge, playerId, isCreator, onBack }) {
   }, [ch.code]);
 
   // Auto-fetch results every 60s while any races are still pending
-  // Never poll if challenge is set up for tomorrow — today's results can't match tomorrow's races
   useEffect(() => {
-    if (ch.day === "tomorrow") return; // no results available for tomorrow's races
+    const sorted = sortRaces(ch.selectedRaces || []);
+    // Use the stored race date (YYYY-MM-DD) to check if races are today
+    // If challenge day is in the future, don't poll — results won't exist yet
+    const todayStr = new Date().toLocaleDateString("en-CA", { timeZone: "Europe/London" });
+    if (ch.day && ch.day > todayStr) return; // challenge is for a future date
+    // Also check first race time — don't poll if no race has gone off yet
+    const firstOff = sorted.length ? raceTimeToDate(sorted[0].time, ch.day || "today") : null;
+    const now = new Date();
+    if (firstOff && firstOff > now) return;
     const pendingRaces = (ch.selectedRaces || []).filter(r => !r.resultIn);
     if (!pendingRaces.length) return;
     let cancelled = false;
@@ -1856,7 +1878,8 @@ export default function App() {
   async function handleCreate(name) {
     const code = genCode(5), playerId = genCode(8);
     const p = { id: playerId, name, picks: {}, picksSubmitted: false };
-    const newCh = { code, creatorId: playerId, status: "open", day: "today", players: { [playerId]: p }, selectedRaces: [], selectedRaceIds: [], racecards: [] };
+    const today = new Date().toLocaleDateString("en-CA", { timeZone: "Europe/London" });
+    const newCh = { code, creatorId: playerId, status: "open", day: today, players: { [playerId]: p }, selectedRaces: [], selectedRaceIds: [], racecards: [] };
     await dbSet(code, newCh);
     setCh(newCh); setPid(playerId); setPlayer(p);
     saveSession(code, playerId, name);
