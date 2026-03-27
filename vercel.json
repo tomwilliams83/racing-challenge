@@ -2,11 +2,12 @@
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "framework": "vite",
-  "rewrites": [
-    { "source": "/api/(.*)", "destination": "/api/$1" },
-    { "source": "/admin", "destination": "/admin.html" },
-    { "source": "/", "destination": "/landing.html" },
-    { "source": "/app", "destination": "/index.html" },
-    { "source": "/app/(.*)", "destination": "/index.html" }
+  "routes": [
+    { "src": "/api/(.*)", "dest": "/api/$1" },
+    { "src": "/landing", "dest": "/landing.html" },
+    { "src": "/admin", "dest": "/admin.html" },
+    { "src": "/icons/(.*)", "dest": "/icons/$1" },
+    { "src": "/manifest.json", "dest": "/manifest.json" },
+    { "src": "/(.*)", "dest": "/index.html" }
   ]
 }
