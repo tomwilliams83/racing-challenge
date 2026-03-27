@@ -629,110 +629,35 @@ function AboutModal({ onClose }) {
       <div onClick={e => e.stopPropagation()}
         style={{ background: "#fff", borderRadius: "20px 20px 0 0", padding: "24px 20px 40px",
           position: "relative", zIndex: 1, maxHeight: "85vh", overflowY: "auto",
-          boxShadow: "0 -8px 40px rgba(0,0,0,.15)" }}>
+          boxShadow: "0 -8px 40px rgba(0,0,0,.15)", animation: "slideUp .25s ease" }}>
         <style>{`@keyframes slideUp { from{transform:translateY(100%)} to{transform:translateY(0)} }`}</style>
-        <div style={{ animation: "slideUp .25s ease" }}>
-          <div style={{ width: 40, height: 4, background: "#ddd", borderRadius: 2, margin: "0 auto 20px" }} />
-
-          <div style={{ textAlign: "center", marginBottom: 20 }}>
-            <img src="/icons/icon-512.png" alt="Stable Mates" style={{ width: 80, height: 80, borderRadius: 18, marginBottom: 12 }} />
-            <div style={{ fontFamily: "'DM Serif Display', serif", fontSize: 22, color: C.text }}>Stable Mates</div>
-            <div style={{ fontSize: 13, color: C.muted, marginTop: 4 }}>Free to play · No account needed</div>
-          </div>
-
-          {[
-            { icon: "👥", title: "Racing is better with mates", desc: "Turn a Saturday card into a proper occasion. A shared leaderboard gives every race meaning — whether you're watching trackside, in the pub, or across three different sofas." },
-            { icon: "🧠", title: "Sharpen your eye for a horse", desc: "Having a stake in every race forces you to study the form, weigh up the jockey, consider the going. Week by week you'll develop instincts that take real punters years to build." },
-            { icon: "🍾", title: "All the thrill, none of the risk", desc: "The rush of watching your pick come home at 10/1 shouldn't cost you anything. Stable Mates gives you that feeling — the anticipation, the heartbreak, the glory — completely free." },
-          ].map(({ icon, title, desc }) => (
-            <div key={title} style={{ display: "flex", gap: 14, marginBottom: 20, padding: "14px 16px",
-              background: C.bg, borderRadius: 12, border: `1.5px solid ${C.border}` }}>
-              <div style={{ fontSize: 28, flexShrink: 0 }}>{icon}</div>
-              <div>
-                <div style={{ fontWeight: 700, fontSize: 15, color: C.text, marginBottom: 4 }}>{title}</div>
-                <div style={{ fontSize: 14, color: C.muted, lineHeight: 1.55 }}>{desc}</div>
-              </div>
-            </div>
-          ))}
-
-          <div style={{ fontSize: 12, color: C.mutedLt, textAlign: "center", marginTop: 8 }}>
-            For entertainment purposes only · Please gamble responsibly
-          </div>
-
-          <button onClick={onClose}
-            style={{ width: "100%", padding: 14, background: C.pink, color: "#fff",
-              border: "none", borderRadius: 12, fontSize: 15, fontWeight: 700,
-              cursor: "pointer", fontFamily: "inherit", marginTop: 20 }}>
-            Let's Play 🐴
-          </button>
+        <div style={{ width: 40, height: 4, background: "#ddd", borderRadius: 2, margin: "0 auto 20px" }} />
+        <div style={{ textAlign: "center", marginBottom: 20 }}>
+          <img src="/icons/icon-512.png" alt="Stable Mates" style={{ width: 80, height: 80, borderRadius: 18, marginBottom: 12 }} />
+          <div style={{ fontFamily: "'DM Serif Display', serif", fontSize: 22, color: C.text }}>Stable Mates</div>
+          <div style={{ fontSize: 13, color: C.muted, marginTop: 4 }}>Free to play · No account needed</div>
         </div>
-      </div>
-    </div>
-  );
-}
-
-// ── ABOUT MODAL ──────────────────────────────────────────────────────────────
-function AboutModal({ onClose }) {
-  return (
-    <div style={{ position: "fixed", inset: 0, zIndex: 500, display: "flex", flexDirection: "column", justifyContent: "flex-end" }}
-      onClick={onClose}>
-      <div style={{ background: "rgba(0,0,0,.5)", position: "absolute", inset: 0 }} />
-      <div onClick={e => e.stopPropagation()}
-        style={{ background: "#fff", borderRadius: "20px 20px 0 0", padding: "24px 20px 48px",
-          position: "relative", zIndex: 1, maxHeight: "85vh", overflowY: "auto",
-          boxShadow: "0 -8px 40px rgba(0,0,0,.2)", animation: "slideUp .25s ease" }}>
-        <style>{`@keyframes slideUp { from{transform:translateY(100%)} to{transform:translateY(0)} }`}</style>
-        <div style={{ width: 40, height: 4, background: "#ddd", borderRadius: 2, margin: "0 auto 24px" }} />
-
-        <div style={{ textAlign: "center", marginBottom: 24 }}>
-          <img src="/icons/icon-512.png" alt="Stable Mates"
-            style={{ width: 80, height: 80, borderRadius: 18, marginBottom: 12 }} />
-          <div style={{ fontFamily: "'DM Serif Display', serif", fontSize: 28, color: C.text }}>
-            Stable <span style={{ color: C.pink }}>Mates</span>
-          </div>
-          <div style={{ fontSize: 14, color: C.muted, marginTop: 4 }}>Pick. Compete. Collect.</div>
-        </div>
-
         {[
-          { icon: "👥", title: "Racing is better with mates",
-            desc: "Turn a Saturday card into a proper occasion. A shared leaderboard gives every race meaning — whether you're watching trackside, in the pub, or across three different sofas." },
-          { icon: "🧠", title: "Sharpen your eye for a horse",
-            desc: "Having a stake in every race — even a virtual one — forces you to study the form, weigh up the jockey, consider the going. Week by week you'll develop instincts that take real punters years to build." },
-          { icon: "🍾", title: "All the thrill, none of the risk",
-            desc: "The rush of watching your pick come home at 10/1 shouldn't cost you anything. Stable Mates gives you that feeling — the anticipation, the heartbreak, the glory — completely free." },
+          { icon: "👥", title: "Racing is better with mates", desc: "Turn a Saturday card into a proper occasion. A shared leaderboard gives every race meaning — whether you're watching trackside, in the pub, or across three different sofas." },
+          { icon: "🧠", title: "Sharpen your eye for a horse", desc: "Having a stake in every race forces you to study the form, weigh up the jockey, consider the going. Week by week you'll develop instincts that take real punters years to build." },
+          { icon: "🍾", title: "All the thrill, none of the risk", desc: "Stable Mates gives you the rush of watching your pick come home at 10/1 — the anticipation, the heartbreak, the glory — completely free." },
         ].map(({ icon, title, desc }) => (
-          <div key={title} style={{ marginBottom: 20, padding: "16px", background: C.bg, borderRadius: 12 }}>
-            <div style={{ fontSize: 28, marginBottom: 8 }}>{icon}</div>
-            <div style={{ fontFamily: "'DM Serif Display', serif", fontSize: 18, color: C.text, marginBottom: 6 }}>{title}</div>
-            <div style={{ fontSize: 14, color: C.muted, lineHeight: 1.65 }}>{desc}</div>
+          <div key={title} style={{ display: "flex", gap: 14, marginBottom: 16, padding: "14px 16px",
+            background: C.bg, borderRadius: 12, border: `1.5px solid ${C.border}` }}>
+            <div style={{ fontSize: 28, flexShrink: 0 }}>{icon}</div>
+            <div>
+              <div style={{ fontWeight: 700, fontSize: 15, color: C.text, marginBottom: 4 }}>{title}</div>
+              <div style={{ fontSize: 14, color: C.muted, lineHeight: 1.55 }}>{desc}</div>
+            </div>
           </div>
         ))}
-
-        <div style={{ marginTop: 8, padding: "14px 16px", background: C.bg, borderRadius: 12, marginBottom: 20 }}>
-          <div style={{ fontFamily: "'DM Serif Display', serif", fontSize: 16, color: C.text, marginBottom: 10 }}>How it works</div>
-          {[
-            ["🎟️", "Create a challenge", "Pick your races and share a 5-letter code with your mates"],
-            ["🐴", "Pick your horses", "Choose a winner in each race — go each-way if you fancy a place"],
-            ["⭐", "Set your NAP", "One race where you double your stake — pick wisely"],
-            ["🏆", "Watch the leaderboard", "Returns calculate automatically at Starting Price"],
-          ].map(([icon, title, desc]) => (
-            <div key={title} style={{ display: "flex", gap: 10, marginBottom: 12 }}>
-              <span style={{ fontSize: 20, flexShrink: 0 }}>{icon}</span>
-              <div>
-                <div style={{ fontWeight: 600, fontSize: 14, color: C.text }}>{title}</div>
-                <div style={{ fontSize: 13, color: C.muted }}>{desc}</div>
-              </div>
-            </div>
-          ))}
-        </div>
-
-        <p style={{ textAlign: "center", fontSize: 12, color: C.mutedLt }}>
+        <div style={{ fontSize: 12, color: C.mutedLt, textAlign: "center", marginTop: 8 }}>
           For entertainment purposes only · Please gamble responsibly
-        </p>
-
+        </div>
         <button onClick={onClose}
-          style={{ width: "100%", marginTop: 20, padding: 14, background: C.pink, color: "#fff",
-            border: "none", borderRadius: 12, fontSize: 15, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
+          style={{ width: "100%", padding: 14, background: C.pink, color: "#fff",
+            border: "none", borderRadius: 12, fontSize: 15, fontWeight: 700,
+            cursor: "pointer", fontFamily: "inherit", marginTop: 20 }}>
           Let's Play 🐴
         </button>
       </div>
@@ -2080,8 +2005,6 @@ export default function App() {
                 </button>
               </div>
             </div>
-            {showAbout && <AboutModal onClose={() => setShowAbout(false)} />}
-
             {/* Welcome back */}
             {session && (
               <div className="card" style={{ marginBottom: 16, textAlign: "center", borderColor: C.blue, background: "#f0f7ff" }}>
