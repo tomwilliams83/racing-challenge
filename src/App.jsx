@@ -97,7 +97,7 @@ const GLOBAL_CSS = `
   .serif { font-family: 'DM Serif Display', serif; }
   .wrap { max-width: 820px; margin: 0 auto; padding: 0 16px 100px; }
 
-  .hdr { background: linear-gradient(135deg, ${C.blue} 0%, ${C.blueDk} 100%); padding: 20px 0 18px; text-align: center; position: sticky; top: 0; z-index: 100; box-shadow: 0 2px 20px rgba(13,95,168,.25); }
+  .hdr { background: linear-gradient(135deg, ${C.blue} 0%, ${C.blueDk} 100%); padding: 10px 0; text-align: center; position: sticky; top: 0; z-index: 100; box-shadow: 0 2px 20px rgba(13,95,168,.25); }
   .hdr-eye { font-size: 10px; letter-spacing: 5px; color: rgba(255,255,255,.55); margin-bottom: 4px; font-weight: 600; }
   .hdr-title { font-family: 'DM Serif Display', serif; font-size: clamp(24px,4vw,42px); color: #fff; letter-spacing: 1px; }
   .hdr-pink { color: ${C.pink}; }
@@ -1928,9 +1928,8 @@ export default function App() {
       <style>{GLOBAL_CSS}</style>
 
       <div className="hdr">
-        <div className="hdr-eye">STABLE MATES</div>
-        <div className="hdr-title">🐴 Stable <span className="hdr-pink">Mates</span></div>
-        <div className="hdr-sub">PICK · COMPETE · COLLECT</div>
+        <img src="/icons/icon-192.png" alt="Stable Mates"
+          style={{ width: 56, height: 56, borderRadius: 14, display: "block", margin: "0 auto" }} />
       </div>
 
       <div className="wrap">
