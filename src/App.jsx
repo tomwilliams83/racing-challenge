@@ -206,7 +206,7 @@ const GLOBAL_CSS = `
   .ctx-strip { display: flex; justify-content: space-between; align-items: center; padding: 10px 0 14px; border-bottom: 1.5px solid ${C.border}; margin-bottom: 8px; flex-wrap: wrap; gap: 8px; }
   .ctx-code { font-family: 'DM Serif Display', serif; letter-spacing: 5px; color: ${C.pink}; font-size: 20px; }
 
-  .home-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+  .home-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: stretch; }
   @media(max-width:540px){ .home-grid { grid-template-columns: 1fr; } }
 
   .err { color: ${C.danger}; font-size: 14px; margin-top: 10px; padding: 10px 14px; background: #fff5f5; border: 1.5px solid #ffb3b3; border-radius: 10px; font-weight: 500; }
@@ -595,30 +595,27 @@ function A2HSBanner() {
   const { canShow, isIOS, trigger, dismiss } = useA2HS();
   if (!canShow) return null;
   return (
-    <div style={{ background: C.blue, color: "#fff", borderRadius: 12, padding: "12px 16px",
-      display: "flex", alignItems: "center", gap: 12, marginTop: 16, marginBottom: 4,
-      boxShadow: "0 4px 16px rgba(26,127,212,.3)" }}>
-      <span style={{ fontSize: 24 }}>🏇</span>
-      <div style={{ flex: 1, fontSize: 13, lineHeight: 1.5 }}>
+    <div style={{ background: C.text, color: "#fff", borderRadius: 0,
+      padding: "8px 16px", display: "flex", alignItems: "center", gap: 10,
+      margin: "0 -16px", fontSize: 12 }}>
+      <div style={{ flex: 1, lineHeight: 1.4 }}>
         {isIOS
-          ? <><strong>Add to Home Screen</strong> — tap <strong>Share</strong> then <strong>"Add to Home Screen"</strong></>
+          ? <>Tap <strong>Share</strong> → <strong>Add to Home Screen</strong> for quick access</>
           : <><strong>Add to Home Screen</strong> for quick access on race day</>
         }
       </div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 6, flexShrink: 0 }}>
-        {!isIOS && (
-          <button onClick={trigger}
-            style={{ background: C.pink, border: "none", color: "#fff", borderRadius: 8,
-              padding: "6px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
-            Add
-          </button>
-        )}
-        <button onClick={dismiss}
-          style={{ background: "rgba(255,255,255,.2)", border: "none", color: "#fff", borderRadius: 8,
-            padding: "6px 12px", fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}>
-          {isIOS ? "Got it" : "Not now"}
+      {!isIOS && (
+        <button onClick={trigger}
+          style={{ background: C.pink, border: "none", color: "#fff", borderRadius: 6,
+            padding: "5px 10px", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>
+          Add
         </button>
-      </div>
+      )}
+      <button onClick={dismiss}
+        style={{ background: "none", border: "none", color: "rgba(255,255,255,.6)",
+          fontSize: 16, cursor: "pointer", padding: "0 4px", flexShrink: 0, lineHeight: 1 }}>
+        ×
+      </button>
     </div>
   );
 }
@@ -638,43 +635,36 @@ function HomeScreen({ onCreate, onJoin }) {
   }
 
   return (
-    <div style={{ paddingTop: 36 }} className="fade">
-      <div style={{ textAlign: "center", marginBottom: 36 }}>
-        <div style={{ fontSize: 58, marginBottom: 12 }}>🏇</div>
-        <h1 className="serif" style={{ fontSize: "clamp(28px,5vw,46px)", color: C.text, marginBottom: 12 }}>
-          Stable <span style={{ color: C.pink }}>Mates</span>
-        </h1>
-        <p style={{ color: C.muted, fontSize: 17, maxWidth: 440, margin: "0 auto", lineHeight: 1.65 }}>
-          Pick a winner — or go each-way — in each race and see who banks the best returns at Starting Price. 🍾
-        </p>
-      </div>
-
-      <div className="home-grid">
-        <div className="card card-pink">
+    <div className="fade">
+      <div className="home-grid" style={{ alignItems: "stretch" }}>
+        <div className="card card-pink" style={{ display: "flex", flexDirection: "column" }}>
           <div className="eyebrow">Start a new game</div>
-          <div className="sec-title" style={{ fontSize: 20, marginBottom: 14 }}>Create Challenge</div>
-          <div className="field">
+          <div className="sec-title" style={{ fontSize: 20, marginBottom: 14 }}>Create</div>
+          <div className="field" style={{ flex: 1 }}>
             <label>Your name</label>
-            <input className="inp" placeholder="e.g. Paddy" value={createName} onChange={e => setCreateName(e.target.value)} />
+            <input className="inp" placeholder="e.g. Paddy" value={createName} onChange={e => setCreateName(e.target.value)}
+              onKeyDown={e => e.key === "Enter" && createName.trim() && onCreate(createName.trim())} />
           </div>
-          <button className="btn btn-pink" style={{ width: "100%" }} disabled={!createName.trim()} onClick={() => onCreate(createName.trim())}>
+          <button className="btn btn-pink" style={{ width: "100%", marginTop: "auto" }} disabled={!createName.trim()} onClick={() => onCreate(createName.trim())}>
             Create &amp; Get Code
           </button>
         </div>
 
-        <div className="card card-blue">
+        <div className="card card-blue" style={{ display: "flex", flexDirection: "column" }}>
           <div className="eyebrow">Join a friend's game</div>
-          <div className="sec-title" style={{ fontSize: 20, marginBottom: 14 }}>Join Challenge</div>
+          <div className="sec-title" style={{ fontSize: 20, marginBottom: 14 }}>Join</div>
           <div className="field">
             <label>Your name</label>
             <input className="inp" placeholder="e.g. Seamus" value={joinName} onChange={e => setJoinName(e.target.value)} />
           </div>
-          <div className="field">
+          <div className="field" style={{ flex: 1 }}>
             <label>Challenge code</label>
-            <input className="inp inp-code" placeholder="XXXXX" value={joinCode} onChange={e => setJoinCode(e.target.value.toUpperCase())} maxLength={5} />
+            <input className="inp inp-code" placeholder="XXXXX" value={joinCode}
+              onChange={e => setJoinCode(e.target.value.toUpperCase())} maxLength={5}
+              onKeyDown={e => e.key === "Enter" && joinName.trim() && joinCode.length >= 5 && handleJoin()} />
           </div>
           {err && <div className="err">{err}</div>}
-          <button className="btn btn-blue" style={{ width: "100%", marginTop: 4 }} disabled={!joinName.trim() || joinCode.length < 5} onClick={handleJoin}>
+          <button className="btn btn-blue" style={{ width: "100%", marginTop: "auto" }} disabled={!joinName.trim() || joinCode.length < 5} onClick={handleJoin}>
             Join Challenge
           </button>
         </div>
@@ -1927,10 +1917,6 @@ export default function App() {
       <style>{GLOBAL_CSS}</style>
 
       <div className="wrap">
-        <div style={{ textAlign: "center", padding: "20px 0 4px" }}>
-          <img src="/icons/icon-512.png" alt="Stable Mates"
-            style={{ width: "min(55vw, 240px)", height: "min(55vw, 240px)", borderRadius: "22%", display: "inline-block" }} />
-        </div>
         {showCtx && (
           <div className="ctx-strip">
             <div style={{ fontSize: 14, color: C.muted, fontWeight: 500 }}>
@@ -1948,9 +1934,19 @@ export default function App() {
 
         {screen === "home" && (
           <>
+            {/* A2HS — small dark bar at top */}
             <A2HSBanner />
+
+            {/* Logo — large, centred */}
+            <div style={{ textAlign: "center", padding: "28px 0 20px" }}>
+              <img src="/icons/icon-512.png" alt="Stable Mates"
+                style={{ width: "min(55vw, 220px)", height: "min(55vw, 220px)", borderRadius: "22%", display: "inline-block",
+                  boxShadow: "0 8px 32px rgba(26,127,212,.15)" }} />
+            </div>
+
+            {/* Welcome back */}
             {session && (
-              <div className="card" style={{ marginTop: 20, marginBottom: 4, textAlign: "center", borderColor: C.blue, background: "#f0f7ff" }}>
+              <div className="card" style={{ marginBottom: 16, textAlign: "center", borderColor: C.blue, background: "#f0f7ff" }}>
                 <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 4 }}>👋 Welcome back, {session.playerName}!</div>
                 <div style={{ fontSize: 13, color: C.muted, marginBottom: 14 }}>
                   You were in challenge <span className="ctx-code">{session.code}</span>
@@ -1963,6 +1959,8 @@ export default function App() {
                 </button>
               </div>
             )}
+
+            {/* Start / Join panels */}
             <HomeScreen onCreate={handleCreate} onJoin={handleJoin} />
           </>
         )}
