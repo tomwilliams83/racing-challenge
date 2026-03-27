@@ -4,7 +4,7 @@
   "framework": "vite",
   "routes": [
     { "src": "/api/(.*)", "dest": "/api/$1" },
-    { "src": "/landing", "dest": "/landing.html" },
+    { "src": "/landing", "dest": "/api/landing" },
     { "src": "/admin", "dest": "/admin.html" },
     { "src": "/icons/(.*)", "dest": "/icons/$1" },
     { "src": "/manifest.json", "dest": "/manifest.json" },
