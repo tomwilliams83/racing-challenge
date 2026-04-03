@@ -633,14 +633,14 @@ function AboutModal({ onClose }) {
         <style>{`@keyframes slideUp { from{transform:translateY(100%)} to{transform:translateY(0)} }`}</style>
         <div style={{ width: 40, height: 4, background: "#ddd", borderRadius: 2, margin: "0 auto 20px" }} />
         <div style={{ textAlign: "center", marginBottom: 20 }}>
-          <img src="/icons/icon-512.png" alt="Stable Mates" style={{ width: 80, height: 80, borderRadius: 18, marginBottom: 12 }} />
-          <div style={{ fontFamily: "'DM Serif Display', serif", fontSize: 22, color: C.text }}>Stable Mates</div>
+          <img src="/icons/logo-transparent.png" alt="StableMates" style={{ width: 80, height: 80, marginBottom: 8 }} />
+          <div style={{ fontFamily: "'DM Serif Display', serif", fontSize: 22, color: C.text }}>StableMates</div>
           <div style={{ fontSize: 13, color: C.muted, marginTop: 4 }}>Free to play · No account needed</div>
         </div>
         {[
           { icon: "👥", title: "Racing is better with mates", desc: "Turn a Saturday card into a proper occasion. A shared leaderboard gives every race meaning — whether you're watching trackside, in the pub, or across three different sofas." },
           { icon: "🧠", title: "Sharpen your eye for a horse", desc: "Having a stake in every race forces you to study the form, weigh up the jockey, consider the going. Week by week you'll develop instincts that take real punters years to build." },
-          { icon: "🍾", title: "All the thrill, none of the risk", desc: "Stable Mates gives you the rush of watching your pick come home at 10/1 — the anticipation, the heartbreak, the glory — completely free." },
+          { icon: "🍾", title: "All the thrill, none of the risk", desc: "StableMates gives you the rush of watching your pick come home at 10/1 — the anticipation, the heartbreak, the glory — completely free." },
         ].map(({ icon, title, desc }) => (
           <div key={title} style={{ display: "flex", gap: 14, marginBottom: 16, padding: "14px 16px",
             background: C.bg, borderRadius: 12, border: `1.5px solid ${C.border}` }}>
@@ -724,7 +724,7 @@ function HomeScreen({ onCreate, onJoin }) {
         <button onClick={() => setShowAbout(true)}
           style={{ background: "none", border: "none", color: C.muted, fontSize: 13,
             cursor: "pointer", textDecoration: "underline", fontFamily: "inherit" }}>
-          What is Stable Mates?
+          What is StableMates?
         </button>
       </div>
     </div>
@@ -1994,14 +1994,13 @@ export default function App() {
 
             {/* Logo — large, centred, tappable for About */}
             <div style={{ textAlign: "center", padding: "28px 0 20px" }}>
-              <img src="/icons/icon-512.png" alt="Stable Mates" onClick={() => setShowAbout(true)}
-                style={{ width: "min(55vw, 220px)", height: "min(55vw, 220px)", borderRadius: "22%", display: "inline-block",
-                  boxShadow: "0 8px 32px rgba(26,127,212,.15)", cursor: "pointer" }} />
+              <img src="/icons/logo-transparent.png" alt="StableMates" onClick={() => setShowAbout(true)}
+                style={{ width: "min(60vw, 240px)", height: "min(60vw, 240px)", display: "inline-block", cursor: "pointer" }} />
               <div style={{ marginTop: 8 }}>
                 <button onClick={() => setShowAbout(true)}
                   style={{ background: "none", border: "none", color: C.muted, fontSize: 13,
                     cursor: "pointer", fontFamily: "inherit", textDecoration: "underline" }}>
-                  About Stable Mates
+                  About StableMates
                 </button>
               </div>
             </div>
