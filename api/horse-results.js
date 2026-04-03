@@ -12,7 +12,7 @@ export default async function handler(req, res) {
   if (!horseId) return res.status(400).json({ error: 'horseId required' });
 
   try {
-    const url = `https://api.theracingapi.com/v1/horses/${horseId}/results`;
+    const url = `https://api.theracingapi.com/v1/racecards/${horseId}/results`;
     const response = await fetch(url, {
       headers: {
         Authorization: 'Basic ' + Buffer.from(`${user}:${pass}`).toString('base64'),
