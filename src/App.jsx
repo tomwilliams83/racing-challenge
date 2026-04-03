@@ -1086,13 +1086,133 @@ function RunnerCard({ horse, onClose }) {
           </div>
         )}
 
+        {/* Previous runs — lazy loaded */}
+        <PreviousRuns horseId={horse.id} horseName={horse.name} />
+
         <button onClick={onClose}
           style={{ width: "100%", padding: "14px", background: C.pink, color: "#fff",
             border: "none", borderRadius: 12, fontSize: 15, fontWeight: 700,
-            cursor: "pointer", fontFamily: "inherit" }}>
+            cursor: "pointer", fontFamily: "inherit", marginTop: 8 }}>
           Close
         </button>
       </div>
+    </div>
+  );
+}
+
+function PreviousRuns({ horseId, horseName }) {
+  const [runs,    setRuns]    = useState(null);  // null = not loaded
+  const [loading, setLoading] = useState(false);
+  const [error,   setError]   = useState(null);
+
+  async function load() {
+    setLoading(true); setError(null);
+    try {
+      const res  = await fetch(`/api/horse-results?horseId=${horseId}`);
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      // Extract just this horse's runs from each race
+      const parsed = (data.results || []).map(race => {
+        const runner = (race.runners || []).find(r => r.horse_id === horseId);
+        if (!runner) return null;
+        return {
+          date:    race.date,
+          course:  race.course,
+          dist:    race.dist_f || race.dist,
+          going:   race.going,
+          type:    race.type,
+          class:   race.class,
+          name:    race.race_name,
+          pos:     runner.position,
+          ran:     (race.runners || []).length,
+          wgt:     runner.weight,
+          or:      runner.or,
+          sp:      runner.sp,
+          hg:      runner.headgear,
+          jockey:  runner.jockey,
+          comment: runner.comment,
+        };
+      }).filter(Boolean);
+      setRuns(parsed);
+    } catch(e) { setError(e.message); }
+    setLoading(false);
+  }
+
+  const posColour = (pos) => {
+    if (pos === "1") return C.win;
+    if (pos === "2" || pos === "3") return C.place;
+    return C.muted;
+  };
+
+  if (runs === null && !loading) return (
+    <div style={{ marginTop: 8 }}>
+      <button onClick={load}
+        style={{ width: "100%", padding: "10px", background: C.bg, border: `1.5px solid ${C.border}`,
+          borderRadius: 10, fontSize: 14, fontWeight: 600, color: C.blue, cursor: "pointer", fontFamily: "inherit" }}>
+        📋 Load Previous Runs
+      </button>
+    </div>
+  );
+
+  if (loading) return (
+    <div style={{ textAlign: "center", padding: "16px", color: C.muted, fontSize: 14 }}>Loading runs…</div>
+  );
+
+  if (error) return (
+    <div style={{ padding: "10px", color: C.danger, fontSize: 13, background: "#fff5f5", borderRadius: 8 }}>
+      Could not load runs: {error}
+    </div>
+  );
+
+  if (!runs.length) return (
+    <div style={{ padding: "10px", color: C.muted, fontSize: 13 }}>No previous runs found.</div>
+  );
+
+  return (
+    <div style={{ marginTop: 8 }}>
+      <div style={{ fontSize: 11, letterSpacing: 2, color: C.muted, fontWeight: 600, textTransform: "uppercase", marginBottom: 8 }}>
+        Previous Runs ({runs.length})
+      </div>
+      {runs.map((run, i) => {
+        const isWin = run.pos === "1";
+        const isPlace = run.pos === "2" || run.pos === "3";
+        return (
+          <div key={i} style={{ padding: "10px 12px", borderRadius: 10, marginBottom: 6,
+            background: isWin ? "#f0fff4" : isPlace ? "#f5f0ff" : C.bg,
+            border: `1.5px solid ${isWin ? C.win : isPlace ? C.place : C.border}` }}>
+            {/* Row 1: date, course, class */}
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: C.text }}>
+                {run.course}
+              </div>
+              <div style={{ fontSize: 11, color: C.muted }}>
+                {run.date}
+              </div>
+            </div>
+            {/* Row 2: dist, going, type */}
+            <div style={{ fontSize: 12, color: C.muted, marginBottom: 6 }}>
+              {[run.dist, run.going, run.type, run.class].filter(Boolean).join(" · ")}
+            </div>
+            {/* Row 3: stats grid */}
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+              <span style={{ fontSize: 13, fontWeight: 800, color: posColour(run.pos), minWidth: 40 }}>
+                {run.pos}/{run.ran}
+              </span>
+              {run.sp && <span style={{ fontSize: 12, color: C.text }}>{run.sp}</span>}
+              {run.or && run.or !== "–" && <span style={{ fontSize: 12, color: C.muted }}>OR {run.or}</span>}
+              {run.wgt && <span style={{ fontSize: 12, color: C.muted }}>{run.wgt}</span>}
+              {run.hg && <span style={{ fontSize: 12, color: C.muted }}>{run.hg.toUpperCase()}</span>}
+              {run.jockey && <span style={{ fontSize: 12, color: C.muted, flex: 1, textAlign: "right" }}>{run.jockey}</span>}
+            </div>
+            {/* Row 4: comment if exists */}
+            {run.comment && (
+              <div style={{ fontSize: 12, color: C.muted, marginTop: 5, fontStyle: "italic", lineHeight: 1.4 }}>
+                {run.comment}
+              </div>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
