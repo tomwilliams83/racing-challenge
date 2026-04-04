@@ -4,7 +4,8 @@
   "framework": "vite",
   "redirects": [
     { "source": "/landing", "destination": "/api/landing", "permanent": false },
-    { "source": "/admin", "destination": "/api/admin", "permanent": false }
+    { "source": "/admin", "destination": "/api/admin", "permanent": false },
+    { "source": "/privacy", "destination": "/api/privacy", "permanent": false }
   ],
   "rewrites": [
     { "source": "/((?!api|icons|assets|manifest.json).*)", "destination": "/index.html" }
