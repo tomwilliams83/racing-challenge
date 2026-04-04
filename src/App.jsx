@@ -1327,6 +1327,7 @@ function PicksScreen({ challenge, playerId, onSubmit, onBack, editMode = false }
   const [editing, setEditing] = useState(editMode || !submitted);
   const [saving,  setSaving] = useState(false);
   const [toast,   showToast] = useToast();
+  const raceRefs = useRef({});
 
   // Which races can still be changed? (before their off time — for NR replacements)
   const openRaces = new Set(races.filter(r => isRaceOpen(r, challenge.day)).map(r => r.id));
@@ -1360,6 +1361,14 @@ function PicksScreen({ challenge, playerId, onSubmit, onBack, editMode = false }
   const [selectedRunner, setSelectedRunner] = useState(null);
 
   async function save() {
+    // Scroll to first unpicked race if not all picked
+    if (!allPicked && !submitted) {
+      const firstMissing = races.find(r => !picks[r.id]?.horseId);
+      if (firstMissing && raceRefs.current[firstMissing.id]) {
+        raceRefs.current[firstMissing.id].scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+      return;
+    }
     // Prompt for NAP if not set and not already submitted
     if (!napId && !submitted) {
       setNapWarning(true);
@@ -1444,7 +1453,7 @@ function PicksScreen({ challenge, playerId, onSubmit, onBack, editMode = false }
         const canEditThis = isEditing && (!locked || isNR) && raceOpen;
 
         return (
-          <div key={race.id} className="card" style={{ marginBottom: 12, opacity: locked && !isNR && !isEditing ? 0.85 : 1, ...(isNap ? { borderColor: "#ff8c00", boxShadow: "0 4px 18px rgba(255,140,0,.2)" } : {}), ...(isNR ? { borderColor: "#ffb700", background: "#fffbf0" } : {}) }}>
+          <div key={race.id} ref={el => raceRefs.current[race.id] = el} className="card" style={{ marginBottom: 12, opacity: locked && !isNR && !isEditing ? 0.85 : 1, ...(isNap ? { borderColor: "#ff8c00", boxShadow: "0 4px 18px rgba(255,140,0,.2)" } : {}), ...(isNR ? { borderColor: "#ffb700", background: "#fffbf0" } : {}), ...(!picks[race.id]?.horseId && !locked ? { borderColor: C.pink + "66" } : {}) }}>
             <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 8, marginBottom: 10 }}>
               <div>
                 <div className="eyebrow">Race {i + 1} {isNR ? "⚠️ NON-RUNNER" : locked && !raceOpen ? "🔒" : ""}</div>
