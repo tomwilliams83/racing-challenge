@@ -652,7 +652,8 @@ function AboutModal({ onClose }) {
           </div>
         ))}
         <div style={{ fontSize: 12, color: C.mutedLt, textAlign: "center", marginTop: 8 }}>
-          For entertainment purposes only · Please gamble responsibly
+          For entertainment purposes only · Please gamble responsibly<br/>
+          <a href="/privacy" target="_blank" style={{ color: C.muted, fontSize: 12 }}>Privacy Policy</a>
         </div>
         <button onClick={onClose}
           style={{ width: "100%", padding: 14, background: C.pink, color: "#fff",
@@ -665,13 +666,108 @@ function AboutModal({ onClose }) {
   );
 }
 
+// ── ONBOARDING ───────────────────────────────────────────────────────────────
+const ONBOARDING_KEY = "sm_onboarded";
+
+function OnboardingModal({ onDone }) {
+  const [step, setStep] = useState(0);
+
+  const steps = [
+    {
+      icon: "🏇",
+      title: "Pick a winner in every race",
+      desc: "Choose one horse per race. Go each-way if you want a place as well as a win. You have 2pts to stake on each race.",
+    },
+    {
+      icon: "⭐",
+      title: "Set your NAP",
+      desc: "One race per challenge you can double your stake — your strongest fancy. Pick wisely, it can make or break your leaderboard position.",
+    },
+    {
+      icon: "🏆",
+      title: "Returns at Starting Price",
+      desc: "All returns are calculated at the official SP — exactly how a bookmaker pays out. The leaderboard updates live as races finish.",
+    },
+    {
+      icon: "🍾",
+      title: "No money involved",
+      desc: "StableMates is free to play. Points are virtual — all the thrill of backing a winner, none of the financial risk.",
+    },
+  ];
+
+  const step_data = steps[step];
+  const isLast = step === steps.length - 1;
+
+  function finish() {
+    localStorage.setItem(ONBOARDING_KEY, "1");
+    onDone();
+  }
+
+  return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 600, display: "flex", alignItems: "flex-end",
+      background: "rgba(0,0,0,.5)" }} onClick={isLast ? finish : undefined}>
+      <div onClick={e => e.stopPropagation()}
+        style={{ background: "#fff", borderRadius: "20px 20px 0 0", padding: "32px 24px 48px",
+          width: "100%", maxHeight: "80vh", overflowY: "auto",
+          boxShadow: "0 -8px 40px rgba(0,0,0,.2)", animation: "slideUp .25s ease" }}>
+
+        {/* Progress dots */}
+        <div style={{ display: "flex", justifyContent: "center", gap: 6, marginBottom: 28 }}>
+          {steps.map((_, i) => (
+            <div key={i} style={{ width: i === step ? 20 : 8, height: 8, borderRadius: 4,
+              background: i === step ? C.pink : C.border, transition: "all .2s" }} />
+          ))}
+        </div>
+
+        {/* Content */}
+        <div style={{ textAlign: "center", marginBottom: 32 }}>
+          <div style={{ fontSize: 56, marginBottom: 16 }}>{step_data.icon}</div>
+          <div style={{ fontFamily: "'DM Serif Display', serif", fontSize: 24, color: C.text, marginBottom: 12 }}>
+            {step_data.title}
+          </div>
+          <p style={{ fontSize: 16, color: C.muted, lineHeight: 1.65, maxWidth: 360, margin: "0 auto" }}>
+            {step_data.desc}
+          </p>
+        </div>
+
+        {/* Buttons */}
+        <div style={{ display: "flex", gap: 10 }}>
+          {step > 0 && (
+            <button onClick={() => setStep(s => s - 1)}
+              style={{ flex: 1, padding: 14, background: C.bg, border: `1.5px solid ${C.border}`,
+                borderRadius: 12, fontSize: 15, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", color: C.muted }}>
+              Back
+            </button>
+          )}
+          <button onClick={isLast ? finish : () => setStep(s => s + 1)}
+            style={{ flex: 2, padding: 14, background: C.pink, color: "#fff",
+              border: "none", borderRadius: 12, fontSize: 15, fontWeight: 700,
+              cursor: "pointer", fontFamily: "inherit" }}>
+            {isLast ? "Let's Play 🐴" : "Next →"}
+          </button>
+        </div>
+
+        {/* Skip */}
+        {!isLast && (
+          <div style={{ textAlign: "center", marginTop: 12 }}>
+            <button onClick={finish}
+              style={{ background: "none", border: "none", color: C.mutedLt, fontSize: 13,
+                cursor: "pointer", fontFamily: "inherit" }}>
+              Skip intro
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── HOME ──────────────────────────────────────────────────────────────────────
-function HomeScreen({ onCreate, onJoin }) {
+function HomeScreen({ onCreate, onJoin, openAbout }) {
   const [createName, setCreateName] = useState("");
   const [joinName,   setJoinName]   = useState("");
   const [joinCode,   setJoinCode]   = useState("");
   const [err,        setErr]        = useState("");
-  const [showAbout,  setShowAbout]  = useState(false);
 
   async function handleJoin() {
     if (!joinName.trim() || joinCode.length < 5) return;
@@ -682,7 +778,6 @@ function HomeScreen({ onCreate, onJoin }) {
 
   return (
     <div className="fade">
-      {showAbout && <AboutModal onClose={() => setShowAbout(false)} />}
       <div className="home-grid" style={{ alignItems: "stretch" }}>
         <div className="card card-pink" style={{ display: "flex", flexDirection: "column" }}>
           <div className="eyebrow">Start a new game</div>
@@ -720,8 +815,11 @@ function HomeScreen({ onCreate, onJoin }) {
       <p style={{ textAlign: "center", color: C.mutedLt, marginTop: 24, fontSize: 12, fontWeight: 500 }}>
         FOR ENTERTAINMENT PURPOSES ONLY · PLEASE GAMBLE RESPONSIBLY
       </p>
+      <p style={{ textAlign: "center", marginTop: 6 }}>
+        <a href="/privacy" target="_blank" style={{ color: C.mutedLt, fontSize: 12 }}>Privacy Policy</a>
+      </p>
       <div style={{ textAlign: "center", marginTop: 12 }}>
-        <button onClick={() => setShowAbout(true)}
+        <button onClick={() => openAbout && openAbout()}
           style={{ background: "none", border: "none", color: C.muted, fontSize: 13,
             cursor: "pointer", textDecoration: "underline", fontFamily: "inherit" }}>
           What is StableMates?
@@ -2007,7 +2105,10 @@ export default function App() {
   const [player,    setPlayer]  = useState(null);
   const [rejoining, setRejoining] = useState(false);
   const [session,   setSession]  = useState(() => loadSession());
-  const [showAbout,  setShowAbout] = useState(false);
+  const [showAbout,      setShowAbout]      = useState(false);
+  const [showOnboarding, setShowOnboarding] = useState(
+    () => !localStorage.getItem(ONBOARDING_KEY)
+  );
 
   const isCreator = ch?.creatorId === pid;
 
@@ -2109,6 +2210,7 @@ export default function App() {
 
         {screen === "home" && (
           <>
+            {showOnboarding && <OnboardingModal onDone={() => setShowOnboarding(false)} />}
             {/* A2HS — small dark bar at top */}
             <A2HSBanner />
 
@@ -2141,7 +2243,8 @@ export default function App() {
             )}
 
             {/* Start / Join panels */}
-            <HomeScreen onCreate={handleCreate} onJoin={handleJoin} />
+            {showAbout && <AboutModal onClose={() => setShowAbout(false)} />}
+            <HomeScreen onCreate={handleCreate} onJoin={handleJoin} openAbout={() => setShowAbout(true)} />
           </>
         )}
         {screen === "setup"   && ch && <SetupScreen   challenge={ch} onSave={handleSetupSave} onBack={() => setScreen("home")} />}
