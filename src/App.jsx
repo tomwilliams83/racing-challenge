@@ -486,7 +486,10 @@ function mergePositions(races, data) {
       console.log(`    Matched: "${h.name}" -> pos ${pos} sp ${sp} sp_dec ${spDec}`);
       return { ...h, position: isNaN(pos) ? null : pos, win: pos === 1, sp, spDec };
     });
-    return { ...race, runners, ewTerms: getEWTerms(runners.length, race.isHandicap), resultIn: true };
+    // Use actual starters from results API — NRs are in res.non_runners string, not res.runners array
+    const actualRan = toArr(res.runners).length;
+    const ewRan = actualRan > 0 ? actualRan : runners.length;
+    return { ...race, runners, ewTerms: getEWTerms(ewRan, race.isHandicap), resultIn: true };
   });
 }
 
@@ -1331,14 +1334,15 @@ function PicksScreen({ challenge, playerId, onSubmit, onBack, editMode = false }
 
   // Which races can still be changed? (before their off time — for NR replacements)
   const openRaces = new Set(races.filter(r => isRaceOpen(r, challenge.day)).map(r => r.id));
-  // NR races for this player — races where their pick is marked as non-runner
+  // NR races for this player — pick flagged as NR, OR picked horse marked as NR on runner list
   const nrRaces = new Set(races.filter(r => {
-    const pickedId = picks[r.id]?.horseId;
-    const horse = r.runners.find(h => h.id === pickedId);
-    return horse?.nonRunner;
+    const pick = picks[r.id];
+    if (pick?.nonRunner) return true; // pick itself flagged (manual NR, pick cleared)
+    const horse = r.runners.find(h => h.id === pick?.horseId);
+    return horse?.nonRunner; // runner still in picks but flagged on runner
   }).map(r => r.id));
 
-  const allPicked = races.every(r => picks[r.id]?.horseId);
+  const allPicked = races.every(r => picks[r.id]?.horseId && !picks[r.id]?.nonRunner);
   const canEdit   = !locked || nrRaces.size > 0; // can always edit NR races
 
   function pickHorse(raceId, hId) {
@@ -1550,7 +1554,13 @@ function PicksScreen({ challenge, playerId, onSubmit, onBack, editMode = false }
               )
             )}
 
-            {/* NR: race has gone off and no replacement made */}
+            {/* NR warning — show whether race is open or closed */}
+            {isNR && raceOpen && (
+              <div style={{ fontSize: 13, color: C.danger, marginTop: 8, fontWeight: 600,
+                background: "#fff0f0", border: `1px solid ${C.danger}`, borderRadius: 8, padding: "8px 12px" }}>
+                ⚠️ Your pick is a non-runner — please select a replacement before the race starts.
+              </div>
+            )}
             {isNR && !raceOpen && (
               <div style={{ fontSize: 13, color: "#b36000", marginTop: 8, fontWeight: 500 }}>
                 ⏰ Deadline passed — defaulting to 2pts on SP favourite.
@@ -1783,9 +1793,26 @@ function ResultsScreen({ challenge, playerId, isCreator, onBack }) {
       const hId     = sel?.horseId;
       const betType = sel?.betType || "win";
       const isNap   = p.napRaceId === race.id;
-      const horse   = race.runners.find(h => h.id === hId);
-      if (!horse) return { race, horse: null, betType, isNap, ret: { total: 0, win: 0, place: 0, staked: isNap ? 4 : 2 } };
-      const ret = calcSelectionReturn(horse.sp, betType, horse.position, race.ewTerms, isNap, horse.spDec ?? null);
+      let horse     = race.runners.find(h => h.id === hId);
+
+      // NR default: pick was cleared (nonRunner flag set, no horseId) and race has result
+      // Default to 2pts win on the SP favourite (lowest sp_dec among finishers)
+      let isNRDefault = false;
+      if (!horse && sel?.nonRunner && race.resultIn) {
+        const finishers = race.runners.filter(h => h.spDec != null && h.spDec > 0);
+        if (finishers.length) {
+          horse = finishers.reduce((fav, h) => h.spDec < fav.spDec ? h : fav, finishers[0]);
+          isNRDefault = true;
+        }
+      }
+
+      if (!horse) return { race, horse: null, betType, isNap, isNRDefault: false, ret: { total: 0, win: 0, place: 0, staked: isNap ? 4 : 2 } };
+
+      // NR default is always 2pts win (no EW, no NAP multiplier)
+      const effectiveBetType = isNRDefault ? "win" : betType;
+      const effectiveNap     = isNRDefault ? false  : isNap;
+      const ret = calcSelectionReturn(horse.sp, effectiveBetType, horse.position, race.ewTerms, effectiveNap, horse.spDec ?? null);
+
       // Only count staked and returns for races that have actually run
       if (race.resultIn) {
         totalReturn += ret.total;
@@ -1793,7 +1820,7 @@ function ResultsScreen({ challenge, playerId, isCreator, onBack }) {
       }
       if (horse.position === 1) wins++;
       else if (ret.place > 0) places++;
-      return { race, horse, betType, isNap, ret };
+      return { race, horse, betType: effectiveBetType, isNap: effectiveNap, isNRDefault, ret };
     });
     return { totalReturn: +totalReturn.toFixed(2), totalStaked: +totalStaked.toFixed(2), wins, places, detail };
   }
@@ -2029,6 +2056,13 @@ function ResultsScreen({ challenge, playerId, isCreator, onBack }) {
                   {horse ? horse.name : "No selection"}
                   {horse?.sp && <span style={{ fontWeight: 400, fontSize: 14, color: C.muted, marginLeft: 8 }}>@ {fmtSP(horse.sp)}</span>}
                 </div>
+                {isNRDefault && (
+                  <div style={{ fontSize: 12, color: "#b36000", background: "#fff8ee",
+                    border: "1px solid #ffb700", borderRadius: 6, padding: "4px 10px",
+                    display: "inline-block", marginBottom: 6 }}>
+                    ⚠️ NR default — SP favourite (2pts win)
+                  </div>
+                )}
 
                 {/* Bet type + returns row */}
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end" }}>
