@@ -2261,6 +2261,33 @@ export default function App() {
           </div>
         )}
 
+        {/* NR Banner — shows on any screen when current player has unresolved NR */}
+        {screen !== "home" && ch && pid && (() => {
+          const player = ch.players?.[pid];
+          const races = sortRaces(ch.selectedRaces || []);
+          const hasNR = races.some(r => {
+            if (r.resultIn) return false;
+            const pick = player?.picks?.[r.id];
+            if (pick?.nonRunner) return true;
+            const horse = r.runners?.find(h => h.id === pick?.horseId);
+            return horse?.nonRunner;
+          });
+          if (!hasNR) return null;
+          return (
+            <div style={{ background: C.pink, color: "#fff", padding: "12px 16px",
+              display: "flex", alignItems: "center", gap: 10, margin: "0 -16px 12px",
+              cursor: "pointer" }}
+              onClick={() => setScreen("picks")}>
+              <span style={{ fontSize: 18 }}>⚠️</span>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontWeight: 700, fontSize: 14 }}>Non-runner in your picks</div>
+                <div style={{ fontSize: 12, opacity: 0.9 }}>Tap to make a replacement selection</div>
+              </div>
+              <span style={{ fontSize: 14, opacity: 0.8 }}>→</span>
+            </div>
+          );
+        })()}
+
         {screen === "home" && (
           <>
             {showOnboarding && <OnboardingModal onDone={() => setShowOnboarding(false)} />}
