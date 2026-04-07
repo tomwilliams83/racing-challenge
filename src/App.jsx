@@ -1459,7 +1459,10 @@ function PicksScreen({ challenge, playerId, onSubmit, onBack, editMode = false }
         const myPick     = picks[race.id];
         const pickedId   = myPick?.horseId;
         const betType    = myPick?.betType || "win";
-        const ewAvail    = !!race.ewTerms;
+        // Recalculate EW terms based on actual non-NR runners
+        const activeRunners = race.runners.filter(h => !h.nonRunner);
+        const liveEwTerms = getEWTerms(activeRunners.length, race.isHandicap);
+        const ewAvail    = !!liveEwTerms;
         const isNap      = napId === race.id;
         const isNR       = nrRaces.has(race.id);
         const raceOpen   = openRaces.has(race.id);
@@ -1477,7 +1480,7 @@ function PicksScreen({ challenge, playerId, onSubmit, onBack, editMode = false }
                 <div style={{ color: C.muted, fontSize: 13, marginTop: 3 }}>
                   {race.name}{race.distance ? ` · ${race.distance}` : ""}
                   {ewAvail
-                    ? <span className="ew-terms">{race.ewTerms.places} places · 1/{race.ewTerms.fraction}</span>
+                    ? <span className="ew-terms">{liveEwTerms.places} places · 1/{liveEwTerms.fraction}</span>
                     : <span style={{ color: C.mutedLt, fontSize: 12, marginLeft: 8 }}>Win only</span>}
                 </div>
               </div>
