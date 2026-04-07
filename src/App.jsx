@@ -1810,7 +1810,14 @@ function ResultsScreen({ challenge, playerId, isCreator, onBack }) {
       if (!horse && sel?.nonRunner && race.resultIn) {
         const finishers = race.runners.filter(h => h.spDec != null && h.spDec > 0);
         if (finishers.length) {
-          horse = finishers.reduce((fav, h) => h.spDec < fav.spDec ? h : fav, finishers[0]);
+          // Find lowest SP, then break ties by lowest cloth number
+          const lowestSP = Math.min(...finishers.map(h => h.spDec));
+          const jointFavs = finishers.filter(h => h.spDec === lowestSP);
+          horse = jointFavs.reduce((pick, h) => {
+            const hNum = parseInt(h.number) || 999;
+            const pickNum = parseInt(pick.number) || 999;
+            return hNum < pickNum ? h : pick;
+          }, jointFavs[0]);
           isNRDefault = true;
         }
       }
