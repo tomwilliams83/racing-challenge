@@ -1699,30 +1699,29 @@ function ResultsScreen({ challenge, playerId, isCreator, onBack }) {
     const checkNRs = async () => {
       if (cancelled) return;
       try {
-        // API only accepts 'today' or 'tomorrow' — derive from stored date
-        const todayStr = new Date().toLocaleDateString("en-CA", { timeZone: "Europe/London" });
+        const todayStr    = new Date().toLocaleDateString("en-CA", { timeZone: "Europe/London" });
         const tomorrowStr = new Date(Date.now() + 86400000).toLocaleDateString("en-CA", { timeZone: "Europe/London" });
         const apiDay = ch.day === tomorrowStr ? "tomorrow" : "today";
         const data = await apiGet(`/api/racecards?day=${apiDay}`);
         const fresh = await dbGet(ch.code);
         if (!fresh || cancelled) return;
-        const latestRaces = parseRacecards(data);
+
+        // Build a lookup of all runners from the API racecard by horse_id
+        // NRs are identified by number === "NR" or jockey === "NON-RUNNER"
+        const apiRunnerMap = {};
+        (data.racecards || []).forEach(race => {
+          (race.runners || []).forEach(h => {
+            if (h.horse_id) apiRunnerMap[h.horse_id] = h;
+          });
+        });
+
         let changed = false;
         fresh.selectedRaces = toArr(fresh.selectedRaces).map(race => {
           if (race.resultIn) return race;
-          // Find matching race in latest racecard
-          const latest = latestRaces.find(r =>
-            r.id === race.id ||
-            (normCourse(r.course) === normCourse(race.course) && normTime(r.time) === normTime(race.time))
-          );
-          if (!latest) return race;
-          // Find runners present before but missing now — mark as NR
-          const latestIds = new Set(latest.runners.map(h => h.id));
-          const latestNames = new Set(latest.runners.map(h => h.name.toLowerCase().replace(/[^a-z]/g, "")));
           const updatedRunners = race.runners.map(h => {
-            const stillPresent = latestIds.has(h.id) ||
-              latestNames.has(h.name.toLowerCase().replace(/[^a-z]/g, ""));
-            if (!stillPresent && !h.nonRunner) {
+            const apiRunner = apiRunnerMap[h.id];
+            const isNR = apiRunner && (apiRunner.number === "NR" || apiRunner.jockey === "NON-RUNNER");
+            if (isNR && !h.nonRunner) {
               changed = true;
               console.log(`NR detected: ${h.name} in ${race.course} ${race.time}`);
               return { ...h, nonRunner: true };
@@ -1731,6 +1730,7 @@ function ResultsScreen({ challenge, playerId, isCreator, onBack }) {
           });
           return { ...race, runners: updatedRunners };
         });
+
         if (changed) {
           // Clear picks for newly detected NR horses
           Object.values(fresh.players || {}).forEach(p => {
@@ -1739,14 +1739,14 @@ function ResultsScreen({ challenge, playerId, isCreator, onBack }) {
               if (!pick?.horseId) return;
               const horse = race.runners.find(h => h.id === pick.horseId);
               if (horse?.nonRunner && !pick.nonRunner) {
-                p.picks[race.id] = { ...pick, nonRunner: true };
+                p.picks[race.id] = { ...pick, horseId: null, nonRunner: true };
               }
             });
           });
           await dbSet(fresh.code, fresh);
           if (!cancelled) {
             setCh(normaliseChallenge(fresh));
-            showToast("⚠️ Non-runner detected — affected players notified");
+            showToast("⚠️ Non-runner detected — affected picks cleared");
           }
         }
       } catch (e) { console.warn("NR check error:", e.message); }
