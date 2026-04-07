@@ -1332,6 +1332,15 @@ function PicksScreen({ challenge, playerId, onSubmit, onBack, editMode = false }
   const [toast,   showToast] = useToast();
   const raceRefs = useRef({});
 
+  // Sync picks from challenge prop when NRs are marked externally
+  useEffect(() => {
+    const freshPlayer = challenge.players?.[playerId];
+    if (freshPlayer?.picks) {
+      setPicks(freshPlayer.picks);
+      if (freshPlayer.napRaceId) setNapId(freshPlayer.napRaceId);
+    }
+  }, [challenge]);
+
   // Which races can still be changed? (before their off time — for NR replacements)
   const openRaces = new Set(races.filter(r => isRaceOpen(r, challenge.day)).map(r => r.id));
   // NR races for this player — pick flagged as NR, OR picked horse marked as NR on runner list
@@ -1852,7 +1861,8 @@ function ResultsScreen({ challenge, playerId, isCreator, onBack }) {
       }
     });
     await dbSet(fresh.code, fresh);
-    showToast("Non-runner updated");
+    setCh(normaliseChallenge(fresh));
+    showToast("⚠️ Non-runner marked — affected picks cleared");
   }
 
   const pendingCount = races.filter(r => !r.resultIn).length;
