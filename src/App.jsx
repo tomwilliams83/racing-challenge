@@ -1341,6 +1341,13 @@ function PicksScreen({ challenge, playerId, onSubmit, onBack, editMode = false }
     }
   }, [challenge]);
 
+  // Auto-open editing mode if player has NRs
+  useEffect(() => {
+    if (nrRaces.size > 0 && !editing) {
+      setEditing(true);
+    }
+  }, [nrRaces.size]);
+
   // Which races can still be changed? (before their off time — for NR replacements)
   const openRaces = new Set(races.filter(r => isRaceOpen(r, challenge.day)).map(r => r.id));
   // NR races for this player — pick flagged as NR, OR picked horse marked as NR on runner list
@@ -1408,9 +1415,9 @@ function PicksScreen({ challenge, playerId, onSubmit, onBack, editMode = false }
       <div className="eyebrow">2pts win · 1pt e/w each part · NAP doubles your stake</div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8, marginBottom: 16 }}>
         <div className="sec-title" style={{ marginBottom: 0 }}>{player?.name}'s Picks</div>
-        {submitted && !locked && (
+        {submitted && (!locked || nrRaces.size > 0) && (
           <button className="btn btn-outline btn-sm" onClick={() => setEditing(e => !e)}>
-            {editing ? "Cancel" : "✏️ Change Picks"}
+            {editing ? "Cancel" : nrRaces.size > 0 ? "⚠️ Replace Non-Runner" : "✏️ Change Picks"}
           </button>
         )}
       </div>
@@ -1466,10 +1473,11 @@ function PicksScreen({ challenge, playerId, onSubmit, onBack, editMode = false }
         const isNap      = napId === race.id;
         const isNR       = nrRaces.has(race.id);
         const raceOpen   = openRaces.has(race.id);
-        const canEditThis = isEditing && (!locked || isNR) && raceOpen;
+        // NR races stay editable until the result comes in, even after off time
+        const canEditThis = isEditing && (!locked || isNR) && (raceOpen || (isNR && !race.resultIn));
 
         return (
-          <div key={race.id} ref={el => raceRefs.current[race.id] = el} className="card" style={{ marginBottom: 12, opacity: locked && !isNR && !isEditing ? 0.85 : 1, ...(isNap ? { borderColor: "#ff8c00", boxShadow: "0 4px 18px rgba(255,140,0,.2)" } : {}), ...(isNR ? { borderColor: "#ffb700", background: "#fffbf0" } : {}), ...(!picks[race.id]?.horseId && !locked ? { borderColor: C.pink + "66" } : {}) }}>
+          <div key={race.id} ref={el => raceRefs.current[race.id] = el} data-race-id={race.id} className="card" style={{ marginBottom: 12, opacity: locked && !isNR && !isEditing ? 0.85 : 1, ...(isNap ? { borderColor: "#ff8c00", boxShadow: "0 4px 18px rgba(255,140,0,.2)" } : {}), ...(isNR ? { borderColor: C.danger, background: "#fff0f0" } : {}), ...(!picks[race.id]?.horseId && !locked ? { borderColor: C.pink + "66" } : {}) }}>
             <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 8, marginBottom: 10 }}>
               <div>
                 <div className="eyebrow">Race {i + 1} {isNR ? "⚠️ NON-RUNNER" : locked && !raceOpen ? "🔒" : ""}</div>
@@ -1573,9 +1581,15 @@ function PicksScreen({ challenge, playerId, onSubmit, onBack, editMode = false }
                 ⚠️ Your pick is a non-runner — please select a replacement before the race starts.
               </div>
             )}
-            {isNR && !raceOpen && (
+            {isNR && !raceOpen && !race.resultIn && (
+              <div style={{ fontSize: 13, color: C.danger, marginTop: 8, fontWeight: 600,
+                background: "#fff0f0", border: `1px solid ${C.danger}`, borderRadius: 8, padding: "8px 12px" }}>
+                ⚠️ Race in progress — select a replacement now or you'll default to the SP favourite.
+              </div>
+            )}
+            {isNR && !raceOpen && race.resultIn && (
               <div style={{ fontSize: 13, color: "#b36000", marginTop: 8, fontWeight: 500 }}>
-                ⏰ Deadline passed — defaulting to 2pts on SP favourite.
+                ⏰ Race resulted — defaulting to 2pts on SP favourite.
               </div>
             )}
           </div>
@@ -2283,14 +2297,30 @@ export default function App() {
             return horse?.nonRunner;
           });
           if (!hasNR) return null;
+          const nrRaceIds = races.filter(r => {
+            if (r.resultIn) return false;
+            const pick = player?.picks?.[r.id];
+            if (pick?.nonRunner) return true;
+            const horse = r.runners?.find(h => h.id === pick?.horseId);
+            return horse?.nonRunner;
+          }).map(r => r.id);
           return (
             <div style={{ background: C.pink, color: "#fff", padding: "12px 16px",
               display: "flex", alignItems: "center", gap: 10, margin: "0 -16px 12px",
               cursor: "pointer" }}
-              onClick={() => setScreen("picks")}>
+              onClick={() => {
+                setScreen("picks");
+                // After navigation, scroll to first NR race
+                setTimeout(() => {
+                  const el = document.querySelector(`[data-race-id="${nrRaceIds[0]}"]`);
+                  if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+                }, 150);
+              }}>
               <span style={{ fontSize: 18 }}>⚠️</span>
               <div style={{ flex: 1 }}>
-                <div style={{ fontWeight: 700, fontSize: 14 }}>Non-runner in your picks</div>
+                <div style={{ fontWeight: 700, fontSize: 14 }}>
+                  {nrRaceIds.length === 1 ? "Non-runner in your picks" : `${nrRaceIds.length} non-runners in your picks`}
+                </div>
                 <div style={{ fontSize: 12, opacity: 0.9 }}>Tap to make a replacement selection</div>
               </div>
               <span style={{ fontSize: 14, opacity: 0.8 }}>→</span>
