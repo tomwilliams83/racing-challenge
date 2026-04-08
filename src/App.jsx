@@ -2189,6 +2189,7 @@ export default function App() {
   const [showOnboarding, setShowOnboarding] = useState(
     () => !localStorage.getItem(ONBOARDING_KEY)
   );
+  const [toast,          showToast]         = useToast();
 
   const isCreator = ch?.creatorId === pid;
 
