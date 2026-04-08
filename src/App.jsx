@@ -1327,7 +1327,10 @@ function PicksScreen({ challenge, playerId, onSubmit, onBack, editMode = false }
 
   const [picks,   setPicks]  = useState(player?.picks || {});
   const [napId,   setNapId]  = useState(player?.napRaceId || null);
-  const [editing, setEditing] = useState(editMode || !submitted);
+
+  // Start in editing mode if any picks are NR-flagged
+  const hasNRPick = Object.values(player?.picks || {}).some(p => p?.nonRunner);
+  const [editing, setEditing] = useState(editMode || !submitted || hasNRPick);
   const [saving,  setSaving] = useState(false);
   const [toast,   showToast] = useToast();
   const raceRefs = useRef({});
@@ -2201,6 +2204,66 @@ export default function App() {
     }
   }, []);
 
+  // NR check at App level — fires whenever ch changes, regardless of screen
+  useEffect(() => {
+    if (!ch?.code) return;
+    const unrun = (ch.selectedRaces || []).filter(r => !r.resultIn);
+    if (!unrun.length) return;
+    let cancelled = false;
+    const checkNRs = async () => {
+      if (cancelled) return;
+      try {
+        const todayStr    = new Date().toLocaleDateString("en-CA", { timeZone: "Europe/London" });
+        const tomorrowStr = new Date(Date.now() + 86400000).toLocaleDateString("en-CA", { timeZone: "Europe/London" });
+        const apiDay = ch.day === tomorrowStr ? "tomorrow" : "today";
+        const data = await apiGet(`/api/racecards?day=${apiDay}`);
+        const fresh = await dbGet(ch.code);
+        if (!fresh || cancelled) return;
+        const apiRunnerMap = {};
+        (data.racecards || []).forEach(race => {
+          (race.runners || []).forEach(h => {
+            if (h.horse_id) apiRunnerMap[h.horse_id] = h;
+          });
+        });
+        let changed = false;
+        fresh.selectedRaces = toArr(fresh.selectedRaces).map(race => {
+          if (race.resultIn) return race;
+          const updatedRunners = race.runners.map(h => {
+            const apiRunner = apiRunnerMap[h.id];
+            const isNR = apiRunner && (apiRunner.number === "NR" || apiRunner.jockey === "NON-RUNNER");
+            if (isNR && !h.nonRunner) {
+              changed = true;
+              console.log(`NR detected: ${h.name} in ${race.course} ${race.time}`);
+              return { ...h, nonRunner: true };
+            }
+            return h;
+          });
+          return { ...race, runners: updatedRunners };
+        });
+        if (changed) {
+          Object.values(fresh.players || {}).forEach(p => {
+            toArr(fresh.selectedRaces).forEach(race => {
+              const pick = p.picks?.[race.id];
+              if (!pick?.horseId) return;
+              const horse = race.runners.find(h => h.id === pick.horseId);
+              if (horse?.nonRunner && !pick.nonRunner) {
+                p.picks[race.id] = { ...pick, horseId: null, nonRunner: true };
+              }
+            });
+          });
+          await dbSet(fresh.code, fresh);
+          if (!cancelled) {
+            setCh(normaliseChallenge(fresh));
+            showToast("⚠️ Non-runner detected — affected picks cleared");
+          }
+        }
+      } catch (e) { console.warn("App NR check error:", e.message); }
+    };
+    checkNRs();
+    const interval = setInterval(checkNRs, 3 * 60 * 1000);
+    return () => { cancelled = true; clearInterval(interval); };
+  }, [ch?.code]);
+
   async function rejoinChallenge(code, playerId) {
     setRejoining(true);
     const fresh = await dbGet(code);
@@ -2268,6 +2331,7 @@ export default function App() {
   return (
     <div style={{ minHeight: "100vh", background: C.bg }}>
       <style>{GLOBAL_CSS}</style>
+      <Toast msg={toast} />
 
       <div className="wrap">
         {showCtx && (
