@@ -1038,7 +1038,7 @@ function LobbyScreen({ challenge, playerId, onAction, onBack, deepLink }) {
   const players             = Object.values(ch.players || {});
 
   useEffect(() => {
-    return dbListen(ch.code, fresh => setCh(fresh));
+    return dbListen(ch.code, fresh => setCh(normaliseChallenge(fresh)));
   }, [ch.code]);
 
   function copy() {
@@ -1708,7 +1708,7 @@ function ResultsScreen({ challenge, playerId, isCreator, onBack }) {
 
   // Real-time listener — all players see updates instantly
   useEffect(() => {
-    return dbListen(ch.code, fresh => setCh(fresh));
+    return dbListen(ch.code, fresh => setCh(normaliseChallenge(fresh)));
   }, [ch.code]);
 
   // Auto-detect non-runners by re-polling racecards every 3 mins before races run
@@ -2207,8 +2207,8 @@ export default function App() {
 
   // NR check at App level — fires whenever ch changes, regardless of screen
   useEffect(() => {
-    if (!ch?.code) return;
-    const unrun = (ch.selectedRaces || []).filter(r => !r.resultIn);
+    if (!ch?.code || !ch?.selectedRaces) return;
+    const unrun = toArr(ch.selectedRaces).filter(r => !r.resultIn);
     if (!unrun.length) return;
     let cancelled = false;
     const checkNRs = async () => {
@@ -2270,7 +2270,7 @@ export default function App() {
     const fresh = await dbGet(code);
     if (fresh && fresh.players?.[playerId]) {
       const p = fresh.players[playerId];
-      setCh(fresh); setPid(playerId); setPlayer(p);
+      setCh(normaliseChallenge(fresh)); setPid(playerId); setPlayer(p);
       saveSession(code, playerId, p.name);
       setSession({ code, playerId, playerName: p.name });
       const dest = fresh.status === "open" ? "lobby"
