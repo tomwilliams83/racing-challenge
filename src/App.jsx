@@ -1464,7 +1464,7 @@ function PicksScreen({ challenge, playerId, onSubmit, onBack, editMode = false }
         const pickedId   = myPick?.horseId;
         const betType    = myPick?.betType || "win";
         // Recalculate EW terms based on actual non-NR runners
-        const activeRunners = race.runners.filter(h => !h.nonRunner);
+        const activeRunners = race.runners.filter(h => !h.nonRunner && h.number !== 'NR');
         const liveEwTerms = getEWTerms(activeRunners.length, race.isHandicap);
         const ewAvail    = !!liveEwTerms;
         const isNap      = napId === race.id;
@@ -1514,7 +1514,7 @@ function PicksScreen({ challenge, playerId, onSubmit, onBack, editMode = false }
             {/* Show runner list only if editable, otherwise just show the pick */}
             {canEditThis ? (
               <div className="horse-grid">
-                {race.runners.filter(h => !h.nonRunner).map(h => {
+                {race.runners.filter(h => !h.nonRunner && h.number !== "NR").map(h => {
                   const isPicked = pickedId === h.id;
                   return (
                     <button key={h.id}
