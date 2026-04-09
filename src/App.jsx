@@ -1371,7 +1371,9 @@ function PicksScreen({ challenge, playerId, onSubmit, onBack, editMode = false }
     if (nrRaces.has(raceId)) {
       const fresh = (await dbGet(challenge.code)) || challenge;
       if (fresh.players?.[playerId]) {
-        fresh.players[playerId].picks = { ...fresh.players[playerId].picks, [raceId]: newPick };
+        // Explicitly remove nonRunner flag from the pick
+        const cleanPick = { horseId: hId, betType: picks[raceId]?.betType || "win" };
+        fresh.players[playerId].picks = { ...fresh.players[playerId].picks, [raceId]: cleanPick };
         await dbSet(fresh.code, fresh);
       }
     }
@@ -1480,7 +1482,7 @@ function PicksScreen({ challenge, playerId, onSubmit, onBack, editMode = false }
         const isNR       = nrRaces.has(race.id);
         const raceOpen   = openRaces.has(race.id);
         // NR races stay editable until the result comes in, even after off time
-        const canEditThis = isEditing && (!locked || isNR) && (raceOpen || (isNR && !race.resultIn));
+        const canEditThis = isEditing && (!locked || isNR) && raceOpen;
 
         return (
           <div key={race.id} ref={el => raceRefs.current[race.id] = el} data-race-id={race.id} className="card" style={{ marginBottom: 12, opacity: locked && !isNR && !isEditing ? 0.85 : 1, ...(isNap ? { borderColor: "#ff8c00", boxShadow: "0 4px 18px rgba(255,140,0,.2)" } : {}), ...(isNR ? { borderColor: C.danger, background: "#fff0f0" } : {}), ...(!picks[race.id]?.horseId && !locked ? { borderColor: C.pink + "66" } : {}) }}>
@@ -1587,13 +1589,7 @@ function PicksScreen({ challenge, playerId, onSubmit, onBack, editMode = false }
                 ⚠️ Your pick is a non-runner — please select a replacement before the race starts.
               </div>
             )}
-            {isNR && !raceOpen && !race.resultIn && (
-              <div style={{ fontSize: 13, color: C.danger, marginTop: 8, fontWeight: 600,
-                background: "#fff0f0", border: `1px solid ${C.danger}`, borderRadius: 8, padding: "8px 12px" }}>
-                ⚠️ Race in progress — select a replacement now or you'll default to the SP favourite.
-              </div>
-            )}
-            {isNR && !raceOpen && race.resultIn && (
+            {isNR && !raceOpen && (
               <div style={{ fontSize: 13, color: "#b36000", marginTop: 8, fontWeight: 500 }}>
                 ⏰ Race resulted — defaulting to 2pts on SP favourite.
               </div>
@@ -2359,6 +2355,7 @@ export default function App() {
           const races = sortRaces(ch.selectedRaces || []);
           const hasNR = races.some(r => {
             if (r.resultIn) return false;
+            if (!isRaceOpen(r, ch.day)) return false; // past off time — no longer actionable
             const pick = player?.picks?.[r.id];
             if (pick?.nonRunner) return true;
             const horse = r.runners?.find(h => h.id === pick?.horseId);
