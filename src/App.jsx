@@ -486,7 +486,10 @@ function mergePositions(races, data) {
       console.log(`    Matched: "${h.name}" -> pos ${pos} sp ${sp} sp_dec ${spDec}`);
       return { ...h, position: isNaN(pos) ? null : pos, win: pos === 1, sp, spDec };
     });
-    return { ...race, runners, ewTerms: getEWTerms(runners.length, race.isHandicap), resultIn: true };
+    // Use actual starters from results API — NRs are in res.non_runners string, not res.runners array
+    const actualRan = toArr(res.runners).length;
+    const ewRan = actualRan > 0 ? actualRan : runners.length;
+    return { ...race, runners, ewTerms: getEWTerms(ewRan, race.isHandicap), resultIn: true };
   });
 }
 
@@ -1035,7 +1038,7 @@ function LobbyScreen({ challenge, playerId, onAction, onBack, deepLink }) {
   const players             = Object.values(ch.players || {});
 
   useEffect(() => {
-    return dbListen(ch.code, fresh => setCh(fresh));
+    return dbListen(ch.code, fresh => setCh(normaliseChallenge(fresh)));
   }, [ch.code]);
 
   function copy() {
@@ -1324,28 +1327,54 @@ function PicksScreen({ challenge, playerId, onSubmit, onBack, editMode = false }
 
   const [picks,   setPicks]  = useState(player?.picks || {});
   const [napId,   setNapId]  = useState(player?.napRaceId || null);
-  const [editing, setEditing] = useState(editMode || !submitted);
-  const [saving,  setSaving] = useState(false);
-  const [toast,   showToast] = useToast();
+
+  const [editing, setEditing] = useState(
+    editMode || !submitted || Object.values(player?.picks || {}).some(p => p?.nonRunner)
+  );
+  const [saving,        setSaving]       = useState(false);
+  const [napWarning,    setNapWarning]   = useState(false);
+  const [selectedRunner, setSelectedRunner] = useState(null);
+  const [toast,         showToast]       = useToast();
   const raceRefs = useRef({});
+
+  // Sync picks from challenge prop when NRs are marked externally
+  useEffect(() => {
+    const freshPlayer = challenge.players?.[playerId];
+    if (freshPlayer?.picks) {
+      setPicks(freshPlayer.picks);
+      if (freshPlayer.napRaceId) setNapId(freshPlayer.napRaceId);
+    }
+  }, [challenge]);
+
+
 
   // Which races can still be changed? (before their off time — for NR replacements)
   const openRaces = new Set(races.filter(r => isRaceOpen(r, challenge.day)).map(r => r.id));
-  // NR races for this player — races where their pick is marked as non-runner
+  // NR races for this player — pick flagged as NR, OR picked horse marked as NR on runner list
   const nrRaces = new Set(races.filter(r => {
-    const pickedId = picks[r.id]?.horseId;
-    const horse = r.runners.find(h => h.id === pickedId);
-    return horse?.nonRunner;
+    const pick = picks[r.id];
+    if (pick?.nonRunner) return true; // pick itself flagged (manual NR, pick cleared)
+    const horse = r.runners.find(h => h.id === pick?.horseId);
+    return horse?.nonRunner; // runner still in picks but flagged on runner
   }).map(r => r.id));
 
-  const allPicked = races.every(r => picks[r.id]?.horseId);
+  const allPicked = races.every(r => picks[r.id]?.horseId && !picks[r.id]?.nonRunner);
   const canEdit   = !locked || nrRaces.size > 0; // can always edit NR races
 
-  function pickHorse(raceId, hId) {
+  async function pickHorse(raceId, hId) {
     // Only allow picking if: editing & (race not locked OR it's an NR race)
     if (!editing) return;
     if (locked && !nrRaces.has(raceId)) return;
-    setPicks(p => ({ ...p, [raceId]: { horseId: hId, betType: p[raceId]?.betType || "win" } }));
+    const newPick = { horseId: hId, betType: picks[raceId]?.betType || "win" };
+    setPicks(p => ({ ...p, [raceId]: newPick }));
+    // If replacing an NR, write to Firebase immediately so banner clears
+    if (nrRaces.has(raceId)) {
+      const fresh = (await dbGet(challenge.code)) || challenge;
+      if (fresh.players?.[playerId]) {
+        fresh.players[playerId].picks = { ...fresh.players[playerId].picks, [raceId]: newPick };
+        await dbSet(fresh.code, fresh);
+      }
+    }
   }
   function setBetType(raceId, betType) {
     if (!editing) return;
@@ -1356,9 +1385,6 @@ function PicksScreen({ challenge, playerId, onSubmit, onBack, editMode = false }
     if (!editing || (locked && !nrRaces.has(raceId))) return;
     setNapId(prev => prev === raceId ? null : raceId);
   }
-
-  const [napWarning, setNapWarning] = useState(false);
-  const [selectedRunner, setSelectedRunner] = useState(null);
 
   async function save() {
     // Scroll to first unpicked race if not all picked
@@ -1395,9 +1421,9 @@ function PicksScreen({ challenge, playerId, onSubmit, onBack, editMode = false }
       <div className="eyebrow">2pts win · 1pt e/w each part · NAP doubles your stake</div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8, marginBottom: 16 }}>
         <div className="sec-title" style={{ marginBottom: 0 }}>{player?.name}'s Picks</div>
-        {submitted && !locked && (
+        {submitted && (!locked || nrRaces.size > 0) && (
           <button className="btn btn-outline btn-sm" onClick={() => setEditing(e => !e)}>
-            {editing ? "Cancel" : "✏️ Change Picks"}
+            {editing ? "Cancel" : nrRaces.size > 0 ? "⚠️ Replace Non-Runner" : "✏️ Change Picks"}
           </button>
         )}
       </div>
@@ -1446,14 +1472,18 @@ function PicksScreen({ challenge, playerId, onSubmit, onBack, editMode = false }
         const myPick     = picks[race.id];
         const pickedId   = myPick?.horseId;
         const betType    = myPick?.betType || "win";
-        const ewAvail    = !!race.ewTerms;
+        // Recalculate EW terms based on actual non-NR runners
+        const activeRunners = race.runners.filter(h => !h.nonRunner && h.number !== 'NR');
+        const liveEwTerms = getEWTerms(activeRunners.length, race.isHandicap);
+        const ewAvail    = !!liveEwTerms;
         const isNap      = napId === race.id;
         const isNR       = nrRaces.has(race.id);
         const raceOpen   = openRaces.has(race.id);
-        const canEditThis = isEditing && (!locked || isNR) && raceOpen;
+        // NR races stay editable until the result comes in, even after off time
+        const canEditThis = isEditing && (!locked || isNR) && (raceOpen || (isNR && !race.resultIn));
 
         return (
-          <div key={race.id} ref={el => raceRefs.current[race.id] = el} className="card" style={{ marginBottom: 12, opacity: locked && !isNR && !isEditing ? 0.85 : 1, ...(isNap ? { borderColor: "#ff8c00", boxShadow: "0 4px 18px rgba(255,140,0,.2)" } : {}), ...(isNR ? { borderColor: "#ffb700", background: "#fffbf0" } : {}), ...(!picks[race.id]?.horseId && !locked ? { borderColor: C.pink + "66" } : {}) }}>
+          <div key={race.id} ref={el => raceRefs.current[race.id] = el} data-race-id={race.id} className="card" style={{ marginBottom: 12, opacity: locked && !isNR && !isEditing ? 0.85 : 1, ...(isNap ? { borderColor: "#ff8c00", boxShadow: "0 4px 18px rgba(255,140,0,.2)" } : {}), ...(isNR ? { borderColor: C.danger, background: "#fff0f0" } : {}), ...(!picks[race.id]?.horseId && !locked ? { borderColor: C.pink + "66" } : {}) }}>
             <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 8, marginBottom: 10 }}>
               <div>
                 <div className="eyebrow">Race {i + 1} {isNR ? "⚠️ NON-RUNNER" : locked && !raceOpen ? "🔒" : ""}</div>
@@ -1464,7 +1494,7 @@ function PicksScreen({ challenge, playerId, onSubmit, onBack, editMode = false }
                 <div style={{ color: C.muted, fontSize: 13, marginTop: 3 }}>
                   {race.name}{race.distance ? ` · ${race.distance}` : ""}
                   {ewAvail
-                    ? <span className="ew-terms">{race.ewTerms.places} places · 1/{race.ewTerms.fraction}</span>
+                    ? <span className="ew-terms">{liveEwTerms.places} places · 1/{liveEwTerms.fraction}</span>
                     : <span style={{ color: C.mutedLt, fontSize: 12, marginLeft: 8 }}>Win only</span>}
                 </div>
               </div>
@@ -1493,7 +1523,7 @@ function PicksScreen({ challenge, playerId, onSubmit, onBack, editMode = false }
             {/* Show runner list only if editable, otherwise just show the pick */}
             {canEditThis ? (
               <div className="horse-grid">
-                {race.runners.filter(h => !h.nonRunner).map(h => {
+                {race.runners.filter(h => !h.nonRunner && h.number !== "NR").map(h => {
                   const isPicked = pickedId === h.id;
                   return (
                     <button key={h.id}
@@ -1550,10 +1580,22 @@ function PicksScreen({ challenge, playerId, onSubmit, onBack, editMode = false }
               )
             )}
 
-            {/* NR: race has gone off and no replacement made */}
-            {isNR && !raceOpen && (
+            {/* NR warning — show whether race is open or closed */}
+            {isNR && raceOpen && (
+              <div style={{ fontSize: 13, color: C.danger, marginTop: 8, fontWeight: 600,
+                background: "#fff0f0", border: `1px solid ${C.danger}`, borderRadius: 8, padding: "8px 12px" }}>
+                ⚠️ Your pick is a non-runner — please select a replacement before the race starts.
+              </div>
+            )}
+            {isNR && !raceOpen && !race.resultIn && (
+              <div style={{ fontSize: 13, color: C.danger, marginTop: 8, fontWeight: 600,
+                background: "#fff0f0", border: `1px solid ${C.danger}`, borderRadius: 8, padding: "8px 12px" }}>
+                ⚠️ Race in progress — select a replacement now or you'll default to the SP favourite.
+              </div>
+            )}
+            {isNR && !raceOpen && race.resultIn && (
               <div style={{ fontSize: 13, color: "#b36000", marginTop: 8, fontWeight: 500 }}>
-                ⏰ Deadline passed — defaulting to 2pts on SP favourite.
+                ⏰ Race resulted — defaulting to 2pts on SP favourite.
               </div>
             )}
           </div>
@@ -1669,7 +1711,7 @@ function ResultsScreen({ challenge, playerId, isCreator, onBack }) {
 
   // Real-time listener — all players see updates instantly
   useEffect(() => {
-    return dbListen(ch.code, fresh => setCh(fresh));
+    return dbListen(ch.code, fresh => setCh(normaliseChallenge(fresh)));
   }, [ch.code]);
 
   // Auto-detect non-runners by re-polling racecards every 3 mins before races run
@@ -1680,30 +1722,29 @@ function ResultsScreen({ challenge, playerId, isCreator, onBack }) {
     const checkNRs = async () => {
       if (cancelled) return;
       try {
-        // API only accepts 'today' or 'tomorrow' — derive from stored date
-        const todayStr = new Date().toLocaleDateString("en-CA", { timeZone: "Europe/London" });
+        const todayStr    = new Date().toLocaleDateString("en-CA", { timeZone: "Europe/London" });
         const tomorrowStr = new Date(Date.now() + 86400000).toLocaleDateString("en-CA", { timeZone: "Europe/London" });
         const apiDay = ch.day === tomorrowStr ? "tomorrow" : "today";
         const data = await apiGet(`/api/racecards?day=${apiDay}`);
         const fresh = await dbGet(ch.code);
         if (!fresh || cancelled) return;
-        const latestRaces = parseRacecards(data);
+
+        // Build a lookup of all runners from the API racecard by horse_id
+        // NRs are identified by number === "NR" or jockey === "NON-RUNNER"
+        const apiRunnerMap = {};
+        (data.racecards || []).forEach(race => {
+          (race.runners || []).forEach(h => {
+            if (h.horse_id) apiRunnerMap[h.horse_id] = h;
+          });
+        });
+
         let changed = false;
         fresh.selectedRaces = toArr(fresh.selectedRaces).map(race => {
           if (race.resultIn) return race;
-          // Find matching race in latest racecard
-          const latest = latestRaces.find(r =>
-            r.id === race.id ||
-            (normCourse(r.course) === normCourse(race.course) && normTime(r.time) === normTime(race.time))
-          );
-          if (!latest) return race;
-          // Find runners present before but missing now — mark as NR
-          const latestIds = new Set(latest.runners.map(h => h.id));
-          const latestNames = new Set(latest.runners.map(h => h.name.toLowerCase().replace(/[^a-z]/g, "")));
           const updatedRunners = race.runners.map(h => {
-            const stillPresent = latestIds.has(h.id) ||
-              latestNames.has(h.name.toLowerCase().replace(/[^a-z]/g, ""));
-            if (!stillPresent && !h.nonRunner) {
+            const apiRunner = apiRunnerMap[h.id];
+            const isNR = apiRunner && (apiRunner.number === "NR" || apiRunner.jockey === "NON-RUNNER");
+            if (isNR && !h.nonRunner) {
               changed = true;
               console.log(`NR detected: ${h.name} in ${race.course} ${race.time}`);
               return { ...h, nonRunner: true };
@@ -1712,6 +1753,7 @@ function ResultsScreen({ challenge, playerId, isCreator, onBack }) {
           });
           return { ...race, runners: updatedRunners };
         });
+
         if (changed) {
           // Clear picks for newly detected NR horses
           Object.values(fresh.players || {}).forEach(p => {
@@ -1720,14 +1762,14 @@ function ResultsScreen({ challenge, playerId, isCreator, onBack }) {
               if (!pick?.horseId) return;
               const horse = race.runners.find(h => h.id === pick.horseId);
               if (horse?.nonRunner && !pick.nonRunner) {
-                p.picks[race.id] = { ...pick, nonRunner: true };
+                p.picks[race.id] = { ...pick, horseId: null, nonRunner: true };
               }
             });
           });
           await dbSet(fresh.code, fresh);
           if (!cancelled) {
             setCh(normaliseChallenge(fresh));
-            showToast("⚠️ Non-runner detected — affected players notified");
+            showToast("⚠️ Non-runner detected — affected picks cleared");
           }
         }
       } catch (e) { console.warn("NR check error:", e.message); }
@@ -1783,9 +1825,33 @@ function ResultsScreen({ challenge, playerId, isCreator, onBack }) {
       const hId     = sel?.horseId;
       const betType = sel?.betType || "win";
       const isNap   = p.napRaceId === race.id;
-      const horse   = race.runners.find(h => h.id === hId);
-      if (!horse) return { race, horse: null, betType, isNap, ret: { total: 0, win: 0, place: 0, staked: isNap ? 4 : 2 } };
-      const ret = calcSelectionReturn(horse.sp, betType, horse.position, race.ewTerms, isNap, horse.spDec ?? null);
+      let horse     = race.runners.find(h => h.id === hId);
+
+      // NR default: pick was cleared (nonRunner flag set, no horseId) and race has result
+      // Default to 2pts win on the SP favourite (lowest sp_dec among finishers)
+      let isNRDefault = false;
+      if (!horse && sel?.nonRunner && race.resultIn) {
+        const finishers = race.runners.filter(h => h.spDec != null && h.spDec > 0);
+        if (finishers.length) {
+          // Find lowest SP, then break ties by lowest cloth number
+          const lowestSP = Math.min(...finishers.map(h => h.spDec));
+          const jointFavs = finishers.filter(h => h.spDec === lowestSP);
+          horse = jointFavs.reduce((pick, h) => {
+            const hNum = parseInt(h.number) || 999;
+            const pickNum = parseInt(pick.number) || 999;
+            return hNum < pickNum ? h : pick;
+          }, jointFavs[0]);
+          isNRDefault = true;
+        }
+      }
+
+      if (!horse) return { race, horse: null, betType, isNap, isNRDefault: false, ret: { total: 0, win: 0, place: 0, staked: isNap ? 4 : 2 } };
+
+      // NR default is always 2pts win (no EW, no NAP multiplier)
+      const effectiveBetType = isNRDefault ? "win" : betType;
+      const effectiveNap     = isNRDefault ? false  : isNap;
+      const ret = calcSelectionReturn(horse.sp, effectiveBetType, horse.position, race.ewTerms, effectiveNap, horse.spDec ?? null);
+
       // Only count staked and returns for races that have actually run
       if (race.resultIn) {
         totalReturn += ret.total;
@@ -1793,7 +1859,7 @@ function ResultsScreen({ challenge, playerId, isCreator, onBack }) {
       }
       if (horse.position === 1) wins++;
       else if (ret.place > 0) places++;
-      return { race, horse, betType, isNap, ret };
+      return { race, horse, betType: effectiveBetType, isNap: effectiveNap, isNRDefault, ret };
     });
     return { totalReturn: +totalReturn.toFixed(2), totalStaked: +totalStaked.toFixed(2), wins, places, detail };
   }
@@ -1825,7 +1891,8 @@ function ResultsScreen({ challenge, playerId, isCreator, onBack }) {
       }
     });
     await dbSet(fresh.code, fresh);
-    showToast("Non-runner updated");
+    setCh(normaliseChallenge(fresh));
+    showToast("⚠️ Non-runner marked — affected picks cleared");
   }
 
   const pendingCount = races.filter(r => !r.resultIn).length;
@@ -2029,6 +2096,13 @@ function ResultsScreen({ challenge, playerId, isCreator, onBack }) {
                   {horse ? horse.name : "No selection"}
                   {horse?.sp && <span style={{ fontWeight: 400, fontSize: 14, color: C.muted, marginLeft: 8 }}>@ {fmtSP(horse.sp)}</span>}
                 </div>
+                {isNRDefault && (
+                  <div style={{ fontSize: 12, color: "#b36000", background: "#fff8ee",
+                    border: "1px solid #ffb700", borderRadius: 6, padding: "4px 10px",
+                    display: "inline-block", marginBottom: 6 }}>
+                    ⚠️ NR default — SP favourite (2pts win)
+                  </div>
+                )}
 
                 {/* Bet type + returns row */}
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end" }}>
@@ -2118,6 +2192,7 @@ export default function App() {
   const [showOnboarding, setShowOnboarding] = useState(
     () => !localStorage.getItem(ONBOARDING_KEY)
   );
+  const [toast,          showToast]         = useToast();
 
   const isCreator = ch?.creatorId === pid;
 
@@ -2133,12 +2208,72 @@ export default function App() {
     }
   }, []);
 
+  // NR check at App level — fires whenever ch changes, regardless of screen
+  useEffect(() => {
+    if (!ch?.code || !ch?.selectedRaces) return;
+    const unrun = toArr(ch.selectedRaces).filter(r => !r.resultIn);
+    if (!unrun.length) return;
+    let cancelled = false;
+    const checkNRs = async () => {
+      if (cancelled) return;
+      try {
+        const todayStr    = new Date().toLocaleDateString("en-CA", { timeZone: "Europe/London" });
+        const tomorrowStr = new Date(Date.now() + 86400000).toLocaleDateString("en-CA", { timeZone: "Europe/London" });
+        const apiDay = ch.day === tomorrowStr ? "tomorrow" : "today";
+        const data = await apiGet(`/api/racecards?day=${apiDay}`);
+        const fresh = await dbGet(ch.code);
+        if (!fresh || cancelled) return;
+        const apiRunnerMap = {};
+        (data.racecards || []).forEach(race => {
+          (race.runners || []).forEach(h => {
+            if (h.horse_id) apiRunnerMap[h.horse_id] = h;
+          });
+        });
+        let changed = false;
+        fresh.selectedRaces = toArr(fresh.selectedRaces).map(race => {
+          if (race.resultIn) return race;
+          const updatedRunners = race.runners.map(h => {
+            const apiRunner = apiRunnerMap[h.id];
+            const isNR = apiRunner && (apiRunner.number === "NR" || apiRunner.jockey === "NON-RUNNER");
+            if (isNR && !h.nonRunner) {
+              changed = true;
+              console.log(`NR detected: ${h.name} in ${race.course} ${race.time}`);
+              return { ...h, nonRunner: true };
+            }
+            return h;
+          });
+          return { ...race, runners: updatedRunners };
+        });
+        if (changed) {
+          Object.values(fresh.players || {}).forEach(p => {
+            toArr(fresh.selectedRaces).forEach(race => {
+              const pick = p.picks?.[race.id];
+              if (!pick?.horseId) return;
+              const horse = race.runners.find(h => h.id === pick.horseId);
+              if (horse?.nonRunner && !pick.nonRunner) {
+                p.picks[race.id] = { ...pick, horseId: null, nonRunner: true };
+              }
+            });
+          });
+          await dbSet(fresh.code, fresh);
+          if (!cancelled) {
+            setCh(normaliseChallenge(fresh));
+            showToast("⚠️ Non-runner detected — affected picks cleared");
+          }
+        }
+      } catch (e) { console.warn("App NR check error:", e.message); }
+    };
+    checkNRs();
+    const interval = setInterval(checkNRs, 3 * 60 * 1000);
+    return () => { cancelled = true; clearInterval(interval); };
+  }, [ch?.code]);
+
   async function rejoinChallenge(code, playerId) {
     setRejoining(true);
     const fresh = await dbGet(code);
     if (fresh && fresh.players?.[playerId]) {
       const p = fresh.players[playerId];
-      setCh(fresh); setPid(playerId); setPlayer(p);
+      setCh(normaliseChallenge(fresh)); setPid(playerId); setPlayer(p);
       saveSession(code, playerId, p.name);
       setSession({ code, playerId, playerName: p.name });
       const dest = fresh.status === "open" ? "lobby"
@@ -2200,6 +2335,7 @@ export default function App() {
   return (
     <div style={{ minHeight: "100vh", background: C.bg }}>
       <style>{GLOBAL_CSS}</style>
+      <Toast msg={toast} />
 
       <div className="wrap">
         {showCtx && (
@@ -2216,6 +2352,49 @@ export default function App() {
             </div>
           </div>
         )}
+
+        {/* NR Banner — shows on any screen when current player has unresolved NR */}
+        {screen !== "home" && ch && pid && (() => {
+          const player = ch.players?.[pid];
+          const races = sortRaces(ch.selectedRaces || []);
+          const hasNR = races.some(r => {
+            if (r.resultIn) return false;
+            const pick = player?.picks?.[r.id];
+            if (pick?.nonRunner) return true;
+            const horse = r.runners?.find(h => h.id === pick?.horseId);
+            return horse?.nonRunner;
+          });
+          if (!hasNR) return null;
+          const nrRaceIds = races.filter(r => {
+            if (r.resultIn) return false;
+            const pick = player?.picks?.[r.id];
+            if (pick?.nonRunner) return true;
+            const horse = r.runners?.find(h => h.id === pick?.horseId);
+            return horse?.nonRunner;
+          }).map(r => r.id);
+          return (
+            <div style={{ background: C.pink, color: "#fff", padding: "12px 16px",
+              display: "flex", alignItems: "center", gap: 10, margin: "0 -16px 12px",
+              cursor: "pointer" }}
+              onClick={() => {
+                setScreen("picks");
+                // After navigation, scroll to first NR race
+                setTimeout(() => {
+                  const el = document.querySelector(`[data-race-id="${nrRaceIds[0]}"]`);
+                  if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+                }, 150);
+              }}>
+              <span style={{ fontSize: 18 }}>⚠️</span>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontWeight: 700, fontSize: 14 }}>
+                  {nrRaceIds.length === 1 ? "Non-runner in your picks" : `${nrRaceIds.length} non-runners in your picks`}
+                </div>
+                <div style={{ fontSize: 12, opacity: 0.9 }}>Tap to make a replacement selection</div>
+              </div>
+              <span style={{ fontSize: 14, opacity: 0.8 }}>→</span>
+            </div>
+          );
+        })()}
 
         {screen === "home" && (
           <>
