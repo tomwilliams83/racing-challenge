@@ -1331,8 +1331,10 @@ function PicksScreen({ challenge, playerId, onSubmit, onBack, editMode = false }
   const [editing, setEditing] = useState(
     editMode || !submitted || Object.values(player?.picks || {}).some(p => p?.nonRunner)
   );
-  const [saving,  setSaving] = useState(false);
-  const [toast,   showToast] = useToast();
+  const [saving,        setSaving]       = useState(false);
+  const [napWarning,    setNapWarning]   = useState(false);
+  const [selectedRunner, setSelectedRunner] = useState(null);
+  const [toast,         showToast]       = useToast();
   const raceRefs = useRef({});
 
   // Sync picks from challenge prop when NRs are marked externally
@@ -1344,12 +1346,7 @@ function PicksScreen({ challenge, playerId, onSubmit, onBack, editMode = false }
     }
   }, [challenge]);
 
-  // Auto-open editing mode if player has NRs
-  useEffect(() => {
-    if (nrRaces.size > 0 && !editing) {
-      setEditing(true);
-    }
-  }, [nrRaces.size]);
+
 
   // Which races can still be changed? (before their off time — for NR replacements)
   const openRaces = new Set(races.filter(r => isRaceOpen(r, challenge.day)).map(r => r.id));
@@ -1379,9 +1376,6 @@ function PicksScreen({ challenge, playerId, onSubmit, onBack, editMode = false }
     if (!editing || (locked && !nrRaces.has(raceId))) return;
     setNapId(prev => prev === raceId ? null : raceId);
   }
-
-  const [napWarning, setNapWarning] = useState(false);
-  const [selectedRunner, setSelectedRunner] = useState(null);
 
   async function save() {
     // Scroll to first unpicked race if not all picked
