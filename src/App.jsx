@@ -1361,11 +1361,20 @@ function PicksScreen({ challenge, playerId, onSubmit, onBack, editMode = false }
   const allPicked = races.every(r => picks[r.id]?.horseId && !picks[r.id]?.nonRunner);
   const canEdit   = !locked || nrRaces.size > 0; // can always edit NR races
 
-  function pickHorse(raceId, hId) {
+  async function pickHorse(raceId, hId) {
     // Only allow picking if: editing & (race not locked OR it's an NR race)
     if (!editing) return;
     if (locked && !nrRaces.has(raceId)) return;
-    setPicks(p => ({ ...p, [raceId]: { horseId: hId, betType: p[raceId]?.betType || "win" } }));
+    const newPick = { horseId: hId, betType: picks[raceId]?.betType || "win" };
+    setPicks(p => ({ ...p, [raceId]: newPick }));
+    // If replacing an NR, write to Firebase immediately so banner clears
+    if (nrRaces.has(raceId)) {
+      const fresh = (await dbGet(challenge.code)) || challenge;
+      if (fresh.players?.[playerId]) {
+        fresh.players[playerId].picks = { ...fresh.players[playerId].picks, [raceId]: newPick };
+        await dbSet(fresh.code, fresh);
+      }
+    }
   }
   function setBetType(raceId, betType) {
     if (!editing) return;
