@@ -1328,9 +1328,9 @@ function PicksScreen({ challenge, playerId, onSubmit, onBack, editMode = false }
   const [picks,   setPicks]  = useState(player?.picks || {});
   const [napId,   setNapId]  = useState(player?.napRaceId || null);
 
-  // Start in editing mode if any picks are NR-flagged
-  const hasNRPick = Object.values(player?.picks || {}).some(p => p?.nonRunner);
-  const [editing, setEditing] = useState(editMode || !submitted || hasNRPick);
+  const [editing, setEditing] = useState(
+    editMode || !submitted || Object.values(player?.picks || {}).some(p => p?.nonRunner)
+  );
   const [saving,  setSaving] = useState(false);
   const [toast,   showToast] = useToast();
   const raceRefs = useRef({});
