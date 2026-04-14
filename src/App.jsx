@@ -1,6 +1,12 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { initializeApp } from "firebase/app";
 import { getDatabase, ref, set, get, onValue, off } from "firebase/database";
+import {
+  getAuth, onAuthStateChanged, signOut,
+  GoogleAuthProvider, signInWithPopup,
+  createUserWithEmailAndPassword, signInWithEmailAndPassword,
+  sendPasswordResetEmail, updateProfile,
+} from "firebase/auth";
 
 // ─── FIREBASE ─────────────────────────────────────────────────────────────────
 const firebaseConfig = {
@@ -9,8 +15,10 @@ const firebaseConfig = {
   projectId:   import.meta.env.VITE_FIREBASE_PROJECT_ID,
   appId:       import.meta.env.VITE_FIREBASE_APP_ID,
 };
-const fbApp = initializeApp(firebaseConfig);
-const db    = getDatabase(fbApp);
+const fbApp    = initializeApp(firebaseConfig);
+const db       = getDatabase(fbApp);
+const auth     = getAuth(fbApp);
+const gProvider = new GoogleAuthProvider();
 
 // Firebase stores arrays as objects with numeric keys — normalise on read
 function toArr(val) {
@@ -49,6 +57,22 @@ async function dbSet(code, val) {
 function dbListen(code, cb) {
   const r = ref(db, `challenges/${code}`);
   onValue(r, snap => { if (snap.exists()) cb(normaliseChallenge(snap.val())); });
+  return () => off(r);
+}
+
+// ─── USER PROFILE DB ─────────────────────────────────────────────────────────
+async function userGet(uid) {
+  try {
+    const snap = await get(ref(db, `users/${uid}`));
+    return snap.exists() ? snap.val() : null;
+  } catch { return null; }
+}
+async function userSet(uid, data) {
+  try { await set(ref(db, `users/${uid}`), data); } catch {}
+}
+function userListen(uid, cb) {
+  const r = ref(db, `users/${uid}`);
+  onValue(r, snap => { if (snap.exists()) cb(snap.val()); });
   return () => off(r);
 }
 
@@ -767,10 +791,220 @@ function OnboardingModal({ onDone }) {
   );
 }
 
+// ── AUTH SCREENS ─────────────────────────────────────────────────────────────
+function AuthScreen({ onAuth }) {
+  const [mode,     setMode]     = useState("login"); // login | register | reset
+  const [email,    setEmail]    = useState("");
+  const [password, setPassword] = useState("");
+  const [name,     setName]     = useState("");
+  const [err,      setErr]      = useState("");
+  const [msg,      setMsg]      = useState("");
+  const [busy,     setBusy]     = useState(false);
+
+  async function handleGoogle() {
+    setBusy(true); setErr("");
+    try {
+      const result = await signInWithPopup(auth, gProvider);
+      await ensureUserProfile(result.user);
+      onAuth(result.user);
+    } catch (e) { setErr(friendlyError(e)); }
+    setBusy(false);
+  }
+
+  async function handleEmail() {
+    if (!email.trim()) return setErr("Please enter your email");
+    if (!password)     return setErr("Please enter your password");
+    if (mode === "register" && !name.trim()) return setErr("Please enter your name");
+    setBusy(true); setErr("");
+    try {
+      if (mode === "register") {
+        const result = await createUserWithEmailAndPassword(auth, email.trim(), password);
+        await updateProfile(result.user, { displayName: name.trim() });
+        await ensureUserProfile(result.user, name.trim());
+        onAuth(result.user);
+      } else {
+        const result = await signInWithEmailAndPassword(auth, email.trim(), password);
+        await ensureUserProfile(result.user);
+        onAuth(result.user);
+      }
+    } catch (e) { setErr(friendlyError(e)); }
+    setBusy(false);
+  }
+
+  async function handleReset() {
+    if (!email.trim()) return setErr("Enter your email address first");
+    setBusy(true); setErr("");
+    try {
+      await sendPasswordResetEmail(auth, email.trim());
+      setMsg("Password reset email sent — check your inbox");
+      setMode("login");
+    } catch (e) { setErr(friendlyError(e)); }
+    setBusy(false);
+  }
+
+  function friendlyError(e) {
+    const code = e.code || "";
+    if (code.includes("email-already"))   return "An account with this email already exists";
+    if (code.includes("wrong-password"))  return "Incorrect password";
+    if (code.includes("user-not-found"))  return "No account found with this email";
+    if (code.includes("weak-password"))   return "Password must be at least 6 characters";
+    if (code.includes("invalid-email"))   return "Please enter a valid email address";
+    if (code.includes("popup-closed"))    return "Sign-in cancelled";
+    if (code.includes("network"))         return "Network error — check your connection";
+    return "Something went wrong — please try again";
+  }
+
+  return (
+    <div style={{ minHeight: "100vh", background: C.bg, display: "flex", flexDirection: "column",
+      alignItems: "center", justifyContent: "center", padding: "24px 16px" }}>
+      <style>{GLOBAL_CSS}</style>
+
+      {/* Logo */}
+      <div style={{ textAlign: "center", marginBottom: 32 }}>
+        <img src="/icons/logo-transparent.png" alt="StableMates"
+          style={{ width: 120, height: 120, marginBottom: 16 }} />
+        <div style={{ fontFamily: "'DM Serif Display', serif", fontSize: 28, color: C.text }}>
+          Stable<span style={{ color: C.pink }}>Mates</span>
+        </div>
+        <div style={{ fontSize: 13, color: C.muted, marginTop: 4 }}>
+          {mode === "register" ? "Create your account" : mode === "reset" ? "Reset your password" : "Sign in to play"}
+        </div>
+      </div>
+
+      <div style={{ width: "100%", maxWidth: 400 }}>
+
+        {/* Google Sign In */}
+        {mode !== "reset" && (
+          <>
+            <button onClick={handleGoogle} disabled={busy}
+              style={{ width: "100%", padding: "13px 20px", borderRadius: 12, border: `1.5px solid ${C.border}`,
+                background: "#fff", cursor: "pointer", fontFamily: "inherit", fontSize: 15, fontWeight: 600,
+                color: C.text, display: "flex", alignItems: "center", justifyContent: "center", gap: 10,
+                marginBottom: 16, boxShadow: "0 2px 8px rgba(0,0,0,.06)" }}>
+              <svg width="18" height="18" viewBox="0 0 48 48">
+                <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
+                <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
+                <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
+                <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.18 1.48-4.97 2.31-8.16 2.31-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
+                <path fill="none" d="M0 0h48v48H0z"/>
+              </svg>
+              Continue with Google
+            </button>
+
+            <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
+              <div style={{ flex: 1, height: 1, background: C.border }} />
+              <span style={{ fontSize: 12, color: C.mutedLt, fontWeight: 500 }}>or</span>
+              <div style={{ flex: 1, height: 1, background: C.border }} />
+            </div>
+          </>
+        )}
+
+        {/* Email form */}
+        <div className="card" style={{ padding: 20 }}>
+          {mode === "register" && (
+            <div className="field">
+              <label>Your name</label>
+              <input className="inp" placeholder="e.g. Tom" value={name}
+                onChange={e => setName(e.target.value)} />
+            </div>
+          )}
+          <div className="field">
+            <label>Email address</label>
+            <input className="inp" type="email" placeholder="you@example.com" value={email}
+              onChange={e => setEmail(e.target.value)}
+              onKeyDown={e => e.key === "Enter" && (mode === "reset" ? handleReset() : handleEmail())} />
+          </div>
+          {mode !== "reset" && (
+            <div className="field" style={{ marginBottom: 8 }}>
+              <label>Password</label>
+              <input className="inp" type="password" placeholder="Min 6 characters" value={password}
+                onChange={e => setPassword(e.target.value)}
+                onKeyDown={e => e.key === "Enter" && handleEmail()} />
+            </div>
+          )}
+
+          {err && <div className="err" style={{ marginBottom: 12 }}>{err}</div>}
+          {msg && <div style={{ color: C.win, fontSize: 13, marginBottom: 12, fontWeight: 500 }}>{msg}</div>}
+
+          <button onClick={mode === "reset" ? handleReset : handleEmail}
+            disabled={busy}
+            className="btn btn-pink" style={{ width: "100%", marginTop: 4 }}>
+            {busy ? "Please wait…" : mode === "register" ? "Create Account" : mode === "reset" ? "Send Reset Email" : "Sign In"}
+          </button>
+        </div>
+
+        {/* Mode switchers */}
+        <div style={{ textAlign: "center", marginTop: 16, fontSize: 13, color: C.muted }}>
+          {mode === "login" && (
+            <>
+              <button onClick={() => { setMode("register"); setErr(""); setMsg(""); }}
+                style={{ background: "none", border: "none", color: C.blue, cursor: "pointer",
+                  fontFamily: "inherit", fontSize: 13, fontWeight: 600 }}>
+                Create an account
+              </button>
+              {" · "}
+              <button onClick={() => { setMode("reset"); setErr(""); setMsg(""); }}
+                style={{ background: "none", border: "none", color: C.muted, cursor: "pointer",
+                  fontFamily: "inherit", fontSize: 13 }}>
+                Forgot password?
+              </button>
+            </>
+          )}
+          {mode === "register" && (
+            <button onClick={() => { setMode("login"); setErr(""); }}
+              style={{ background: "none", border: "none", color: C.blue, cursor: "pointer",
+                fontFamily: "inherit", fontSize: 13, fontWeight: 600 }}>
+              Already have an account? Sign in
+            </button>
+          )}
+          {mode === "reset" && (
+            <button onClick={() => { setMode("login"); setErr(""); }}
+              style={{ background: "none", border: "none", color: C.blue, cursor: "pointer",
+                fontFamily: "inherit", fontSize: 13, fontWeight: 600 }}>
+              Back to sign in
+            </button>
+          )}
+        </div>
+
+        {/* Guest option */}
+        <div style={{ textAlign: "center", marginTop: 24 }}>
+          <button onClick={() => onAuth(null)}
+            style={{ background: "none", border: "none", color: C.mutedLt, cursor: "pointer",
+              fontFamily: "inherit", fontSize: 13 }}>
+            Continue as guest →
+          </button>
+          <div style={{ fontSize: 11, color: C.mutedLt, marginTop: 4 }}>
+            Guests can join challenges but won't have stats or stables
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Ensure user profile exists in Firebase DB
+async function ensureUserProfile(firebaseUser, displayName = null) {
+  const uid = firebaseUser.uid;
+  const existing = await userGet(uid);
+  if (!existing) {
+    const name = displayName || firebaseUser.displayName || firebaseUser.email?.split("@")[0] || "Player";
+    await userSet(uid, {
+      uid,
+      name,
+      email: firebaseUser.email || null,
+      photoURL: firebaseUser.photoURL || null,
+      createdAt: Date.now(),
+      challengesEntered: 0,
+      challengesWon: 0,
+      badges: [],
+    });
+  }
+}
+
 // ── HOME ──────────────────────────────────────────────────────────────────────
-function HomeScreen({ onCreate, onJoin, openAbout }) {
-  const [createName, setCreateName] = useState("");
-  const [joinName,   setJoinName]   = useState("");
+function HomeScreen({ onCreate, onJoin, openAbout, authUser }) {
+  const [createName, setCreateName] = useState(authUser?.displayName || "");
+  const [joinName,   setJoinName]   = useState(authUser?.displayName || "");
   const [joinCode,   setJoinCode]   = useState("");
   const [err,        setErr]        = useState("");
 
@@ -2180,6 +2414,7 @@ function clearSession() {
 }
 
 export default function App() {
+  const [authUser,  setAuthUser]  = useState(undefined); // undefined = loading, null = guest
   const [screen,    setScreen]  = useState("home");
   const [ch,        setCh]      = useState(null);
   const [pid,       setPid]     = useState(null);
@@ -2191,6 +2426,19 @@ export default function App() {
     () => !localStorage.getItem(ONBOARDING_KEY)
   );
   const [toast,          showToast]         = useToast();
+
+  // Firebase Auth listener — fires once on mount, then on auth state changes
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, async user => {
+      if (user) {
+        await ensureUserProfile(user);
+        setAuthUser(user);
+      } else {
+        setAuthUser(null);
+      }
+    });
+    return unsub;
+  }, []);
 
   const isCreator = ch?.creatorId === pid;
 
@@ -2283,26 +2531,34 @@ export default function App() {
   }
 
   async function handleCreate(name) {
-    const code = genCode(5), playerId = genCode(8);
-    const p = { id: playerId, name, picks: {}, picksSubmitted: false };
+    // If logged in, use uid as playerId for cross-device continuity
+    const playerId = authUser?.uid || genCode(8);
+    const code = genCode(5);
+    const displayName = authUser?.displayName || name;
+    const p = { id: playerId, name: displayName, picks: {}, picksSubmitted: false,
+      uid: authUser?.uid || null };
     const today = new Date().toLocaleDateString("en-CA", { timeZone: "Europe/London" });
-    const newCh = { code, creatorId: playerId, status: "open", day: today, players: { [playerId]: p }, selectedRaces: [], selectedRaceIds: [], racecards: [] };
+    const newCh = { code, creatorId: playerId, creatorUid: authUser?.uid || null,
+      status: "open", day: today, players: { [playerId]: p },
+      selectedRaces: [], selectedRaceIds: [], racecards: [] };
     await dbSet(code, newCh);
     setCh(newCh); setPid(playerId); setPlayer(p);
-    saveSession(code, playerId, name);
-    setSession({ code, playerId, playerName: name });
+    saveSession(code, playerId, displayName);
+    setSession({ code, playerId, playerName: displayName });
     setScreen("setup");
   }
 
   async function handleJoin(existingCh, name) {
-    const playerId = genCode(8);
-    const p = { id: playerId, name, picks: {}, picksSubmitted: false };
+    const playerId = authUser?.uid || genCode(8);
+    const displayName = authUser?.displayName || name;
+    const p = { id: playerId, name: displayName, picks: {}, picksSubmitted: false,
+      uid: authUser?.uid || null };
     const fresh = (await dbGet(existingCh.code)) || existingCh;
     fresh.players[playerId] = p;
     await dbSet(fresh.code, fresh);
-    setCh(fresh); setPid(playerId); setPlayer(p);
-    saveSession(fresh.code, playerId, name);
-    setSession({ code: fresh.code, playerId, playerName: name });
+    setCh(normaliseChallenge(fresh)); setPid(playerId); setPlayer(p);
+    saveSession(fresh.code, playerId, displayName);
+    setSession({ code: fresh.code, playerId, playerName: displayName });
     setScreen(fresh.status === "selections" ? "picks" : "lobby");
   }
 
@@ -2322,6 +2578,30 @@ export default function App() {
     : null;
 
   const showCtx = screen !== "home" && ch;
+
+  // Auth loading state
+  if (authUser === undefined) return (
+    <div style={{ minHeight: "100vh", background: C.bg, display: "flex", alignItems: "center",
+      justifyContent: "center" }}>
+      <style>{GLOBAL_CSS}</style>
+      <div className="loader"><span/><span/><span/></div>
+    </div>
+  );
+
+  // Auth screen — shown if not logged in and not guest
+  // authUser === null means either guest or not logged in — we use showAuthScreen to distinguish
+  const showAuthScreen = authUser === null && !sessionStorage.getItem("sm_guest");
+  if (showAuthScreen) return (
+    <AuthScreen onAuth={user => {
+      if (user) {
+        setAuthUser(user);
+      } else {
+        // Guest — set flag so we don't show auth screen again this session
+        sessionStorage.setItem("sm_guest", "1");
+        setAuthUser(null);
+      }
+    }} />
+  );
 
   if (rejoining) return (
     <div style={{ minHeight: "100vh", background: C.bg, display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -2413,6 +2693,39 @@ export default function App() {
                 </button>
               </div>
             </div>
+
+            {/* Auth status strip */}
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center",
+              padding: "8px 0", marginBottom: 8, borderBottom: `1px solid ${C.border}` }}>
+              {authUser ? (
+                <>
+                  <div style={{ fontSize: 13, color: C.muted }}>
+                    👤 <strong style={{ color: C.text }}>{authUser.displayName || authUser.email}</strong>
+                  </div>
+                  <button onClick={async () => {
+                      await signOut(auth);
+                      sessionStorage.removeItem("sm_guest");
+                      setAuthUser(null);
+                    }}
+                    style={{ background: "none", border: "none", color: C.muted, fontSize: 12,
+                      cursor: "pointer", fontFamily: "inherit" }}>
+                    Sign out
+                  </button>
+                </>
+              ) : (
+                <>
+                  <div style={{ fontSize: 13, color: C.mutedLt }}>Playing as guest</div>
+                  <button onClick={() => {
+                      sessionStorage.removeItem("sm_guest");
+                      setAuthUser(undefined);
+                    }}
+                    style={{ background: "none", border: "none", color: C.blue, fontSize: 12,
+                      cursor: "pointer", fontFamily: "inherit", fontWeight: 600 }}>
+                    Sign in →
+                  </button>
+                </>
+              )}
+            </div>
             {/* Welcome back */}
             {session && (
               <div className="card" style={{ marginBottom: 16, textAlign: "center", borderColor: C.blue, background: "#f0f7ff" }}>
@@ -2431,7 +2744,7 @@ export default function App() {
 
             {/* Start / Join panels */}
             {showAbout && <AboutModal onClose={() => setShowAbout(false)} />}
-            <HomeScreen onCreate={handleCreate} onJoin={handleJoin} openAbout={() => setShowAbout(true)} />
+            <HomeScreen onCreate={handleCreate} onJoin={handleJoin} openAbout={() => setShowAbout(true)} authUser={authUser} />
           </>
         )}
         {screen === "setup"   && ch && <SetupScreen   challenge={ch} onSave={handleSetupSave} onBack={() => setScreen("home")} />}
