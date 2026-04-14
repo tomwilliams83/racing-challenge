@@ -3064,7 +3064,7 @@ export default function App() {
           );
         })()}
 
-        {screen === "home" && (
+        {!showProfile && screen === "home" && (
           <>
             {showOnboarding && <OnboardingModal onDone={() => setShowOnboarding(false)} />}
             {/* A2HS — small dark bar at top */}
@@ -3141,7 +3141,7 @@ export default function App() {
             <HomeScreen onCreate={handleCreate} onJoin={handleJoin} openAbout={() => setShowAbout(true)} authUser={authUser} />
           </>
         )}
-        {showProfile && authUser && (
+        {showProfile && authUser ? (
           <ProfileScreen
             authUser={authUser}
             onBack={() => setShowProfile(false)}
@@ -3156,11 +3156,14 @@ export default function App() {
               }
             }}
           />
+        ) : (
+          <>
+            {screen === "setup"   && ch && <SetupScreen   challenge={ch} onSave={handleSetupSave} onBack={() => setScreen("home")} />}
+            {screen === "lobby"   && ch && <LobbyScreen   challenge={ch} playerId={pid} onAction={handleLobbyAction} onBack={() => setScreen("home")} deepLink={deepLink} />}
+            {screen === "picks"   && ch && <PicksScreen   challenge={ch} playerId={pid} onSubmit={handlePicksSubmit} onBack={() => setScreen("lobby")} />}
+            {screen === "results" && ch && <ResultsScreen challenge={ch} playerId={pid} isCreator={isCreator} onBack={() => setScreen("lobby")} />}
+          </>
         )}
-        {!showProfile && screen === "setup"   && ch && <SetupScreen   challenge={ch} onSave={handleSetupSave} onBack={() => setScreen("home")} />}
-        {!showProfile && screen === "lobby"   && ch && <LobbyScreen   challenge={ch} playerId={pid} onAction={handleLobbyAction} onBack={() => setScreen("home")} deepLink={deepLink} />}
-        {!showProfile && screen === "picks"   && ch && <PicksScreen   challenge={ch} playerId={pid} onSubmit={handlePicksSubmit} onBack={() => setScreen("lobby")} />}
-        {!showProfile && screen === "results" && ch && <ResultsScreen challenge={ch} playerId={pid} isCreator={isCreator} onBack={() => setScreen("lobby")} />}
         {screen === "lobby"   && ch && <LobbyScreen   challenge={ch} playerId={pid} onAction={handleLobbyAction} onBack={() => setScreen("home")} deepLink={deepLink} />}
         {screen === "picks"   && ch && <PicksScreen   challenge={ch} playerId={pid} onSubmit={handlePicksSubmit} onBack={() => setScreen("lobby")} />}
         {screen === "results" && ch && <ResultsScreen challenge={ch} playerId={pid} isCreator={isCreator} onBack={() => setScreen("lobby")} />}
