@@ -2316,7 +2316,7 @@ function ResultsScreen({ challenge, playerId, isCreator, onBack }) {
 
       {tab === "mine" && me && (
         <div className="fade">
-          {me.detail.map(({ race, horse, betType, isNap, ret }, i) => {
+          {me.detail.map(({ race, horse, betType, isNap, isNRDefault, ret }, i) => {
             const isWin     = horse?.position === 1;
             const isPlace   = !isWin && ret.place > 0;
             const isPending = horse && !race.resultIn;
@@ -3164,9 +3164,6 @@ export default function App() {
             {screen === "results" && ch && <ResultsScreen challenge={ch} playerId={pid} isCreator={isCreator} onBack={() => setScreen("lobby")} />}
           </>
         )}
-        {screen === "lobby"   && ch && <LobbyScreen   challenge={ch} playerId={pid} onAction={handleLobbyAction} onBack={() => setScreen("home")} deepLink={deepLink} />}
-        {screen === "picks"   && ch && <PicksScreen   challenge={ch} playerId={pid} onSubmit={handlePicksSubmit} onBack={() => setScreen("lobby")} />}
-        {screen === "results" && ch && <ResultsScreen challenge={ch} playerId={pid} isCreator={isCreator} onBack={() => setScreen("lobby")} />}
       </div>
     </div>
   );
