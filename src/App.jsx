@@ -4182,7 +4182,7 @@ export default function App() {
             {screen === "picks"   && ch && <PicksScreen   challenge={ch} playerId={pid} onSubmit={handlePicksSubmit} onBack={() => setScreen("lobby")} />}
             {screen === "results" && ch && <ResultsScreen challenge={ch} playerId={pid} isCreator={isCreator} onBack={() => setScreen("lobby")} />}
           </>
-        )}
+        ) : null}
       </div>
     </div>
   );
