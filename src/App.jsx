@@ -1079,13 +1079,8 @@ function ManageStable({ authUser, stableCode, onBack, onUpdated, showToast, onCr
   }
 
   async function copyInviteLink() {
-    const text = `Join my stable "${stable?.name}" on StableMates! Search for it in the Stables section. 🏠🐴`;
-    if (navigator.share) {
-      try { await navigator.share({ title: "Join my StableMates stable", text }); } catch {}
-    } else {
-      try { await navigator.clipboard.writeText(text); } catch {}
-      showToast("Invite message copied! 🔗");
-    }
+    try { await navigator.clipboard.writeText(stable?.code || stableCode); } catch {}
+    showToast("Stable code copied! 🔗");
   }
 
   if (loading || !stable) return <div className="loader"><span/><span/><span/></div>;
@@ -1130,18 +1125,29 @@ function ManageStable({ authUser, stableCode, onBack, onUpdated, showToast, onCr
       <button className="btn btn-outline btn-sm" style={{ marginBottom: 16 }} onClick={onBack}>← Back</button>
 
       {/* Header */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 20 }}>
-        <div>
-          <div className="eyebrow">Stable</div>
-          <div style={{ fontFamily: "'DM Serif Display', serif", fontSize: 24, color: C.text }}>{stable.name}</div>
-          <div style={{ fontSize: 13, color: C.muted, marginTop: 4 }}>
-            {activeMembers.filter(m => m.status === "active").length} members
-            {isCreator ? " · 👑 You created this" : ""}
-          </div>
+      <div style={{ marginBottom: 20 }}>
+        <div className="eyebrow">Stable</div>
+        <div style={{ fontFamily: "'DM Serif Display', serif", fontSize: 24, color: C.text }}>{stable.name}</div>
+        <div style={{ fontSize: 13, color: C.muted, marginTop: 4, marginBottom: 14 }}>
+          {activeMembers.filter(m => m.status === "active").length} members
+          {isCreator ? " · 👑 You created this" : ""}
         </div>
-        <button className="btn btn-outline btn-sm" onClick={copyInviteLink}>
-          🔗 Invite
-        </button>
+        {/* Stable code — share this to invite people */}
+        <div style={{ background: C.bg, border: `1.5px solid ${C.border}`, borderRadius: 12,
+          padding: "12px 16px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div>
+            <div style={{ fontSize: 11, letterSpacing: 2, color: C.muted, fontWeight: 600,
+              textTransform: "uppercase", marginBottom: 4 }}>Stable Code — share to invite</div>
+            <div style={{ fontFamily: "'DM Serif Display', serif", fontSize: 28,
+              letterSpacing: 6, color: C.pink }}>{stable.code}</div>
+          </div>
+          <button onClick={copyInviteLink}
+            style={{ background: C.pink, border: "none", color: "#fff", borderRadius: 8,
+              padding: "8px 14px", fontSize: 13, fontWeight: 700, cursor: "pointer",
+              fontFamily: "inherit" }}>
+            Copy
+          </button>
+        </div>
       </div>
 
       {/* Create Challenge button */}
@@ -1584,6 +1590,13 @@ function FindStableScreen({ authUser, onBack }) {
   async function search() {
     if (!query.trim()) return;
     setLoading(true);
+    // Try direct code lookup first (stable codes start with S)
+    const upper = query.trim().toUpperCase();
+    if (upper.startsWith("S") && upper.length >= 5) {
+      const direct = await stableGet(upper);
+      if (direct) { setResults([direct]); setLoading(false); return; }
+    }
+    // Fall back to name search
     const found = await searchStablesByName(query);
     setResults(found);
     setLoading(false);
@@ -1614,7 +1627,7 @@ function FindStableScreen({ authUser, onBack }) {
       <div className="sec-title">Search Stables</div>
       <div className="card" style={{ marginBottom: 16 }}>
         <div style={{ display: "flex", gap: 8 }}>
-          <input className="inp" placeholder="Search by stable name…" value={query}
+          <input className="inp" placeholder="Enter stable code or name…" value={query}
             onChange={e => setQuery(e.target.value)}
             onKeyDown={e => e.key === "Enter" && search()}
             style={{ flex: 1 }} />
