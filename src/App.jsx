@@ -79,6 +79,41 @@ async function getUserChallenges(uid) {
   } catch { return []; }
 }
 
+// ─── STABLES DB ──────────────────────────────────────────────────────────────
+function genStableCode() {
+  return "S" + Math.random().toString(36).substring(2, 7).toUpperCase();
+}
+async function stableGet(code) {
+  try {
+    const snap = await get(ref(db, `stables/${code}`));
+    return snap.exists() ? snap.val() : null;
+  } catch { return null; }
+}
+async function stableSet(code, val) {
+  try { await set(ref(db, `stables/${code}`), val); } catch {}
+}
+function stableListen(code, cb) {
+  const r = ref(db, `stables/${code}`);
+  onValue(r, snap => { if (snap.exists()) cb(snap.val()); });
+  return () => off(r);
+}
+async function getUserStables(uid) {
+  if (!uid) return [];
+  try {
+    const snap = await get(ref(db, `userStables/${uid}`));
+    if (!snap.exists()) return [];
+    return Object.values(snap.val());
+  } catch { return []; }
+}
+async function addUserStable(uid, code, name) {
+  if (!uid) return;
+  try { await set(ref(db, `userStables/${uid}/${code}`), { code, name, joinedAt: Date.now() }); } catch {}
+}
+async function removeUserStable(uid, code) {
+  if (!uid) return;
+  try { await set(ref(db, `userStables/${uid}/${code}`), null); } catch {}
+}
+
 // ─── USER PROFILE DB ─────────────────────────────────────────────────────────
 async function userGet(uid) {
   try {
@@ -806,6 +841,639 @@ function OnboardingModal({ onDone }) {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+// ── STABLES SCREEN ───────────────────────────────────────────────────────────
+function StablesScreen({ authUser, onBack }) {
+  const [view,        setView]        = useState("list");   // list | create | manage | member
+  const [myStables,   setMyStables]   = useState([]);
+  const [activeStable, setActiveStable] = useState(null);
+  const [loading,     setLoading]     = useState(true);
+  const [toast,       showToast]      = useToast();
+
+  useEffect(() => {
+    if (!authUser?.uid) return;
+    let cancelled = false;
+    async function load() {
+      setLoading(true);
+      const list = await getUserStables(authUser.uid);
+      if (cancelled) return;
+      const details = await Promise.all(list.map(({ code }) => stableGet(code)));
+      if (!cancelled) {
+        setMyStables(details.filter(Boolean));
+        setLoading(false);
+      }
+    }
+    load();
+    return () => { cancelled = true; };
+  }, [authUser?.uid]);
+
+  if (view === "create") return (
+    <CreateStable authUser={authUser}
+      onCreated={async stable => {
+        setMyStables(prev => [...prev, stable]);
+        setActiveStable(stable);
+        setView("manage");
+      }}
+      onBack={() => setView("list")} />
+  );
+
+  if (view === "manage" && activeStable) return (
+    <ManageStable
+      authUser={authUser}
+      stableCode={activeStable.code}
+      onBack={() => { setView("list"); setActiveStable(null); }}
+      onUpdated={updated => setActiveStable(updated)}
+      showToast={showToast}
+    />
+  );
+
+  if (view === "member" && activeStable) return (
+    <StableMemberProfile
+      authUser={authUser}
+      stable={activeStable}
+      onBack={() => setView("manage")}
+    />
+  );
+
+  return (
+    <div style={{ paddingTop: 16 }} className="fade">
+      <Toast msg={toast} />
+      <button className="btn btn-outline btn-sm" style={{ marginBottom: 16 }} onClick={onBack}>← Back</button>
+      <div className="eyebrow">Your Stables</div>
+      <div className="sec-title" style={{ marginBottom: 20 }}>Stables</div>
+
+      {loading ? <div className="loader"><span/><span/><span/></div> : (
+        <>
+          {!myStables.length && (
+            <div style={{ textAlign: "center", padding: "40px 0", color: C.muted }}>
+              <div style={{ fontSize: 48, marginBottom: 12 }}>🏠</div>
+              <div style={{ fontSize: 16, fontWeight: 600, color: C.text, marginBottom: 8 }}>No stables yet</div>
+              <div style={{ fontSize: 14, marginBottom: 24 }}>Create a stable or ask a friend to send you an invite link</div>
+            </div>
+          )}
+
+          {myStables.map(stable => {
+            const memberCount = Object.values(stable.members || {}).filter(m => m.status === "active").length;
+            const isCreator = stable.creatorUid === authUser.uid;
+            const pendingCount = Object.values(stable.members || {}).filter(m => m.status === "pending").length;
+            return (
+              <div key={stable.code} className="card" style={{ marginBottom: 12, cursor: "pointer" }}
+                onClick={() => { setActiveStable(stable); setView("manage"); }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                  <div>
+                    <div style={{ fontFamily: "'DM Serif Display', serif", fontSize: 20, color: C.text, marginBottom: 4 }}>
+                      {stable.name}
+                    </div>
+                    <div style={{ fontSize: 13, color: C.muted }}>
+                      {memberCount} member{memberCount !== 1 ? "s" : ""}
+                      {isCreator ? " · 👑 You created this" : ""}
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 }}>
+                    {pendingCount > 0 && isCreator && (
+                      <span style={{ background: C.pink, color: "#fff", borderRadius: 20,
+                        padding: "2px 10px", fontSize: 12, fontWeight: 700 }}>
+                        {pendingCount} pending
+                      </span>
+                    )}
+                    <span style={{ fontSize: 20, color: C.muted }}>→</span>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+
+          <button className="btn btn-pink" style={{ width: "100%", marginTop: 8 }}
+            onClick={() => setView("create")}>
+            + Create a Stable
+          </button>
+        </>
+      )}
+    </div>
+  );
+}
+
+function CreateStable({ authUser, onCreated, onBack }) {
+  const [name,  setName]  = useState("");
+  const [busy,  setBusy]  = useState(false);
+  const [err,   setErr]   = useState("");
+
+  async function create() {
+    if (!name.trim()) return setErr("Give your stable a name");
+    setBusy(true);
+    const code = genStableCode();
+    const stable = {
+      code,
+      name: name.trim(),
+      creatorUid: authUser.uid,
+      createdAt: Date.now(),
+      members: {
+        [authUser.uid]: {
+          uid: authUser.uid,
+          name: authUser.displayName || authUser.email,
+          status: "active",
+          joinedAt: Date.now(),
+        }
+      },
+      challenges: {},
+      pendingRequests: {},
+    };
+    await stableSet(code, stable);
+    await addUserStable(authUser.uid, code, name.trim());
+    // Earn Stable Master badge
+    const profile = await userGet(authUser.uid);
+    const earned = new Set(profile?.earnedBadges || []);
+    if (!earned.has("stable_master")) {
+      earned.add("stable_master");
+      await userSet(authUser.uid, { ...profile, earnedBadges: [...earned] });
+    }
+    onCreated(stable);
+  }
+
+  return (
+    <div style={{ paddingTop: 16 }} className="fade">
+      <button className="btn btn-outline btn-sm" style={{ marginBottom: 16 }} onClick={onBack}>← Back</button>
+      <div className="eyebrow">New Stable</div>
+      <div className="sec-title">Create a Stable</div>
+      <div className="card">
+        <div className="field">
+          <label>Stable Name</label>
+          <input className="inp" placeholder="e.g. The Cheltenham Crew"
+            value={name} onChange={e => setName(e.target.value)}
+            onKeyDown={e => e.key === "Enter" && create()} />
+        </div>
+        {err && <div className="err">{err}</div>}
+        <button className="btn btn-pink" style={{ width: "100%", marginTop: 8 }}
+          disabled={!name.trim() || busy} onClick={create}>
+          {busy ? "Creating…" : "Create Stable 🏠"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function ManageStable({ authUser, stableCode, onBack, onUpdated, showToast }) {
+  const [stable,   setStable]   = useState(null);
+  const [tab,      setTab]      = useState("league"); // league | members | pending
+  const [loading,  setLoading]  = useState(true);
+  const [selMember, setSelMember] = useState(null);
+  const [yearFilter, setYearFilter] = useState("all");
+
+  useEffect(() => {
+    setLoading(true);
+    const unsub = stableListen(stableCode, fresh => {
+      setStable(fresh);
+      if (onUpdated) onUpdated(fresh);
+      setLoading(false);
+    });
+    return unsub;
+  }, [stableCode]);
+
+  async function approveRequest(uid) {
+    const fresh = await stableGet(stableCode);
+    const req = fresh.pendingRequests?.[uid];
+    if (!req) return;
+    fresh.members = fresh.members || {};
+    fresh.members[uid] = { uid, name: req.name, status: "active", joinedAt: Date.now() };
+    delete fresh.pendingRequests[uid];
+    await stableSet(stableCode, fresh);
+    await addUserStable(uid, stableCode, fresh.name);
+    showToast(`${req.name} approved ✅`);
+  }
+
+  async function declineRequest(uid) {
+    const fresh = await stableGet(stableCode);
+    if (fresh.pendingRequests?.[uid]) {
+      delete fresh.pendingRequests[uid];
+      await stableSet(stableCode, fresh);
+    }
+    showToast("Request declined");
+  }
+
+  async function leaveStable() {
+    if (!confirm(`Leave ${stable?.name}? Your stats will stay but you'll be marked as a past member.`)) return;
+    const fresh = await stableGet(stableCode);
+    if (fresh.members?.[authUser.uid]) {
+      fresh.members[authUser.uid] = { ...fresh.members[authUser.uid], status: "left", leftAt: Date.now() };
+      await stableSet(stableCode, fresh);
+    }
+    await removeUserStable(authUser.uid, stableCode);
+    onBack();
+  }
+
+  async function copyInviteLink() {
+    const link = `${window.location.origin}${window.location.pathname}?joinStable=${stableCode}`;
+    try { await navigator.clipboard.writeText(link); } catch {}
+    showToast("Invite link copied! 🔗");
+  }
+
+  if (loading || !stable) return <div className="loader"><span/><span/><span/></div>;
+
+  const isCreator = stable.creatorUid === authUser.uid;
+  const activeMembers = Object.values(stable.members || {}).filter(m => m.status === "active" || m.status === "left");
+  const pendingRequests = Object.values(stable.pendingRequests || {});
+
+  // Build league table from stable challenges
+  const stableChallenges = Object.values(stable.challenges || {});
+  const years = [...new Set(stableChallenges.map(c => c.day?.substring(0, 4)).filter(Boolean))].sort().reverse();
+
+  // Calculate member stats from stable challenges
+  const memberStats = {};
+  activeMembers.forEach(m => { memberStats[m.uid] = { wins: 0, seconds: 0, thirds: 0, entered: 0 }; });
+
+  stableChallenges.forEach(({ code, day }) => {
+    if (yearFilter !== "all" && day?.substring(0, 4) !== yearFilter) return;
+    // We need to calculate results per challenge — stored as summary on stable
+    const summary = stable.challengeSummaries?.[code];
+    if (!summary) return;
+    Object.entries(summary.positions || {}).forEach(([uid, pos]) => {
+      if (!memberStats[uid]) return;
+      memberStats[uid].entered++;
+      if (pos === 1) memberStats[uid].wins++;
+      else if (pos === 2) memberStats[uid].seconds++;
+      else if (pos === 3) memberStats[uid].thirds++;
+    });
+  });
+
+  const ranked = activeMembers
+    .map(m => ({ ...m, ...(memberStats[m.uid] || { wins: 0, seconds: 0, thirds: 0, entered: 0 }) }))
+    .sort((a, b) => b.wins - a.wins || b.seconds - a.seconds || b.thirds - a.thirds);
+
+  const posEmoji = (i, m) => {
+    if (m.status === "left") return "👻";
+    return i === 0 ? "🏆" : i === 1 ? "🥈" : i === 2 ? "🥉" : `${i + 1}`;
+  };
+
+  return (
+    <div style={{ paddingTop: 16 }} className="fade">
+      <button className="btn btn-outline btn-sm" style={{ marginBottom: 16 }} onClick={onBack}>← Back</button>
+
+      {/* Header */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 20 }}>
+        <div>
+          <div className="eyebrow">Stable</div>
+          <div style={{ fontFamily: "'DM Serif Display', serif", fontSize: 24, color: C.text }}>{stable.name}</div>
+          <div style={{ fontSize: 13, color: C.muted, marginTop: 4 }}>
+            {activeMembers.filter(m => m.status === "active").length} members
+            {isCreator ? " · 👑 You created this" : ""}
+          </div>
+        </div>
+        <button className="btn btn-outline btn-sm" onClick={copyInviteLink}>
+          🔗 Invite
+        </button>
+      </div>
+
+      {/* Pending requests badge */}
+      {isCreator && pendingRequests.length > 0 && (
+        <div className="card" style={{ background: "#fff8ee", borderColor: "#ffb700", marginBottom: 16 }}>
+          <div style={{ fontWeight: 700, color: "#b36000", marginBottom: 8 }}>
+            ⏳ {pendingRequests.length} pending request{pendingRequests.length !== 1 ? "s" : ""}
+          </div>
+          {pendingRequests.map(req => (
+            <div key={req.uid} style={{ display: "flex", justifyContent: "space-between",
+              alignItems: "center", padding: "8px 0", borderTop: `1px solid ${C.border}` }}>
+              <span style={{ fontWeight: 600 }}>{req.name}</span>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button className="btn btn-outline btn-sm" style={{ color: C.danger, borderColor: C.danger }}
+                  onClick={() => declineRequest(req.uid)}>Decline</button>
+                <button className="btn btn-pink btn-sm" onClick={() => approveRequest(req.uid)}>Approve</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Tabs */}
+      <div className="tabs" style={{ marginBottom: 16 }}>
+        {[["league","🏆 League"],["members","👥 Members"]].map(([id, label]) => (
+          <button key={id} className={`tab${tab === id ? " on" : ""}`} onClick={() => setTab(id)}>{label}</button>
+        ))}
+      </div>
+
+      {/* LEAGUE TABLE */}
+      {tab === "league" && (
+        <div className="fade">
+          {/* Year filter */}
+          {years.length > 0 && (
+            <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
+              {["all", ...years].map(y => (
+                <button key={y} onClick={() => setYearFilter(y)}
+                  style={{ padding: "6px 14px", borderRadius: 20, border: `1.5px solid ${C.border}`,
+                    background: yearFilter === y ? C.pink : "#fff", color: yearFilter === y ? "#fff" : C.muted,
+                    fontFamily: "inherit", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+                  {y === "all" ? "All Time" : y}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {ranked.map((m, i) => (
+            <div key={m.uid} className={`lb-row${i === 0 && m.status !== "left" ? " p1" : ""}`}
+              style={{ cursor: m.status === "active" && m.uid !== authUser.uid ? "pointer" : "default",
+                opacity: m.status === "left" ? 0.6 : 1 }}
+              onClick={() => m.status === "active" && m.uid !== authUser.uid && setSelMember(m)}>
+              <div className="lb-rank" style={{ fontSize: 18 }}>{posEmoji(i, m)}</div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 15, fontWeight: 600 }}>
+                  {m.name}
+                  {m.uid === authUser.uid && <span style={{ color: C.muted, fontSize: 13, fontWeight: 400 }}> (you)</span>}
+                  {m.status === "left" && <span style={{ color: C.muted, fontSize: 12 }}> · left</span>}
+                </div>
+                <div style={{ fontSize: 12, color: C.muted, marginTop: 2 }}>
+                  {m.entered} challenge{m.entered !== 1 ? "s" : ""}
+                  {m.seconds > 0 ? ` · ${m.seconds} × 🥈` : ""}
+                  {m.thirds > 0 ? ` · ${m.thirds} × 🥉` : ""}
+                </div>
+              </div>
+              <div style={{ textAlign: "right" }}>
+                <div style={{ fontFamily: "'DM Serif Display', serif", fontSize: 22, color: i === 0 && m.status !== "left" ? C.pink : C.text }}>
+                  {m.wins}
+                </div>
+                <div style={{ fontSize: 11, color: C.muted }}>win{m.wins !== 1 ? "s" : ""}</div>
+              </div>
+            </div>
+          ))}
+
+          {!ranked.length && (
+            <div style={{ textAlign: "center", padding: 32, color: C.muted }}>
+              No challenge results yet
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* MEMBERS */}
+      {tab === "members" && (
+        <div className="fade">
+          {activeMembers.map(m => (
+            <div key={m.uid} style={{ display: "flex", justifyContent: "space-between", alignItems: "center",
+              padding: "12px 0", borderBottom: `1px solid ${C.border}`, opacity: m.status === "left" ? 0.5 : 1 }}>
+              <div>
+                <div style={{ fontWeight: 600, fontSize: 15 }}>
+                  {m.status === "left" ? "👻 " : ""}{m.name}
+                  {m.uid === stable.creatorUid ? " 👑" : ""}
+                  {m.uid === authUser.uid ? <span style={{ color: C.muted, fontSize: 13, fontWeight: 400 }}> (you)</span> : ""}
+                </div>
+                <div style={{ fontSize: 12, color: C.muted }}>
+                  {m.status === "left" ? "Left the stable" : `Joined ${new Date(m.joinedAt).toLocaleDateString("en-GB", { month: "short", year: "numeric" })}`}
+                </div>
+              </div>
+              {m.uid === authUser.uid && m.uid !== stable.creatorUid && (
+                <button onClick={leaveStable}
+                  style={{ fontSize: 12, color: C.danger, background: "none", border: `1px solid ${C.danger}`,
+                    borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontFamily: "inherit" }}>
+                  Leave
+                </button>
+              )}
+              {m.status === "active" && m.uid !== authUser.uid && (
+                <button onClick={() => setSelMember(m)}
+                  style={{ fontSize: 12, color: C.blue, background: "none", border: `1px solid ${C.border}`,
+                    borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontFamily: "inherit" }}>
+                  View →
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Member profile slide-up */}
+      {selMember && (
+        <MemberProfilePanel
+          member={selMember}
+          stable={stable}
+          onClose={() => setSelMember(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+function MemberProfilePanel({ member, stable, onClose }) {
+  const [profile,  setProfile]  = useState(null);
+  const [history,  setHistory]  = useState([]);
+  const [loading,  setLoading]  = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      const prof = await userGet(member.uid);
+      const chalList = await getUserChallenges(member.uid);
+      const details = await Promise.all(
+        chalList.slice(0, 20).map(async ({ code, joinedAt }) => {
+          const ch = await dbGet(code);
+          return ch ? { ...ch, joinedAt } : null;
+        })
+      );
+      if (!cancelled) {
+        setProfile(prof);
+        setHistory(details.filter(Boolean));
+        setLoading(false);
+      }
+    }
+    load();
+    return () => { cancelled = true; };
+  }, [member.uid]);
+
+  const badges = history.length ? computeBadges(member.uid, history) : [];
+
+  // Quick stats
+  let entered = 0, won = 0, totalReturn = 0, totalStaked = 0;
+  history.forEach(ch => {
+    const player = ch.players?.[member.uid];
+    if (!player) return;
+    const races = toArr(ch.selectedRaces || []);
+    const submittedCount = Object.values(ch.players || {}).filter(p => p.picksSubmitted).length;
+    if (!ch.isCanned || submittedCount < 5) return;
+    entered++;
+    const hasResults = races.some(r => r.resultIn);
+    if (!hasResults) return;
+    let chReturn = 0, chStaked = 0;
+    races.forEach(race => {
+      if (!race.resultIn) return;
+      const pick = player.picks?.[race.id];
+      if (!pick?.horseId) return;
+      const horse = race.runners?.find(h => h.id === pick.horseId);
+      if (!horse) return;
+      const ret = calcSelectionReturn(horse.sp, pick.betType || "win", horse.position, race.ewTerms, player.napRaceId === race.id, horse.spDec);
+      chReturn += ret.total; chStaked += ret.staked;
+    });
+    totalReturn += chReturn; totalStaked += chStaked;
+    const ranked = Object.values(ch.players || {}).map(p => {
+      let r = 0;
+      races.forEach(race => {
+        if (!race.resultIn) return;
+        const pick = p.picks?.[race.id];
+        if (!pick?.horseId) return;
+        const horse = race.runners?.find(h => h.id === pick.horseId);
+        if (!horse) return;
+        r += calcSelectionReturn(horse.sp, pick.betType || "win", horse.position, race.ewTerms, p.napRaceId === race.id, horse.spDec).total;
+      });
+      return { id: p.id, total: r };
+    }).sort((a, b) => b.total - a.total);
+    if (ranked[0]?.id === member.uid) won++;
+  });
+  const pnl = +(totalReturn - totalStaked).toFixed(2);
+
+  return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 500, display: "flex", flexDirection: "column", justifyContent: "flex-end" }}
+      onClick={onClose}>
+      <div style={{ background: "rgba(0,0,0,.45)", position: "absolute", inset: 0 }} />
+      <div onClick={e => e.stopPropagation()}
+        style={{ background: "#fff", borderRadius: "20px 20px 0 0", padding: "24px 20px 40px",
+          position: "relative", zIndex: 1, maxHeight: "85vh", overflowY: "auto",
+          boxShadow: "0 -8px 40px rgba(0,0,0,.15)", animation: "slideUp .25s ease" }}>
+        <div style={{ width: 40, height: 4, background: "#ddd", borderRadius: 2, margin: "0 auto 20px" }} />
+
+        {/* Header */}
+        <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 20 }}>
+          <div style={{ width: 52, height: 52, borderRadius: "50%", background: C.blue,
+            display: "flex", alignItems: "center", justifyContent: "center",
+            fontSize: 22, color: "#fff", fontWeight: 700, flexShrink: 0 }}>
+            {(member.name || "?")[0].toUpperCase()}
+          </div>
+          <div>
+            <div style={{ fontFamily: "'DM Serif Display', serif", fontSize: 20 }}>{member.name}</div>
+            <div style={{ fontSize: 13, color: C.muted }}>Member of {stable.name}</div>
+          </div>
+        </div>
+
+        {loading ? <div className="loader"><span/><span/><span/></div> : (
+          <>
+            {/* Stats grid */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 16 }}>
+              {[
+                { label: "Challenges", value: entered },
+                { label: "Wins", value: won },
+                { label: "Win Rate", value: entered ? `${Math.round(won/entered*100)}%` : "0%" },
+              ].map(({ label, value }) => (
+                <div key={label} style={{ background: C.bg, borderRadius: 10, padding: "10px 12px", textAlign: "center" }}>
+                  <div style={{ fontSize: 18, fontWeight: 700, color: C.text, fontFamily: "'DM Serif Display', serif" }}>{value}</div>
+                  <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>{label}</div>
+                </div>
+              ))}
+            </div>
+            <div style={{ background: pnl >= 0 ? "#f0fff4" : "#fff5f5",
+              border: `1.5px solid ${pnl >= 0 ? C.win : C.danger}`, borderRadius: 10,
+              padding: "10px 14px", display: "flex", justifyContent: "space-between",
+              alignItems: "center", marginBottom: 16 }}>
+              <span style={{ fontSize: 13, color: C.muted }}>Overall P&L</span>
+              <span style={{ fontWeight: 700, color: pnl >= 0 ? C.win : C.danger }}>
+                {pnl >= 0 ? "+" : ""}{pnl} pts
+              </span>
+            </div>
+
+            {/* Badges */}
+            {badges.length > 0 && (
+              <div>
+                <div style={{ fontSize: 11, letterSpacing: 2, color: C.muted, fontWeight: 600,
+                  textTransform: "uppercase", marginBottom: 10 }}>Badges</div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                  {badges.map(key => {
+                    const b = BADGE_DEFS[key];
+                    if (!b) return null;
+                    return (
+                      <div key={key} title={b.desc}
+                        style={{ background: "#fff", border: `1.5px solid ${C.pink}`,
+                          borderRadius: 10, padding: "8px 12px", textAlign: "center",
+                          fontSize: 24 }}>
+                        {b.icon}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </>
+        )}
+
+        <button onClick={onClose}
+          style={{ width: "100%", padding: 14, background: C.pink, color: "#fff",
+            border: "none", borderRadius: 12, fontSize: 15, fontWeight: 700,
+            cursor: "pointer", fontFamily: "inherit", marginTop: 20 }}>
+          Close
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── JOIN STABLE SCREEN ───────────────────────────────────────────────────────
+function JoinStableScreen({ authUser, stableCode, onJoined, onBack }) {
+  const [stable,  setStable]  = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [busy,    setBusy]    = useState(false);
+  const [done,    setDone]    = useState(false);
+  const [err,     setErr]     = useState("");
+
+  useEffect(() => {
+    stableGet(stableCode).then(s => { setStable(s); setLoading(false); });
+  }, [stableCode]);
+
+  async function requestJoin() {
+    if (!authUser) { setErr("You need to be signed in to join a stable"); return; }
+    setBusy(true);
+    const fresh = await stableGet(stableCode);
+    if (!fresh) { setErr("Stable not found"); setBusy(false); return; }
+    // Check if already a member
+    if (fresh.members?.[authUser.uid]?.status === "active") {
+      setErr("You're already a member of this stable"); setBusy(false); return;
+    }
+    // Add to pending requests
+    fresh.pendingRequests = fresh.pendingRequests || {};
+    fresh.pendingRequests[authUser.uid] = {
+      uid: authUser.uid,
+      name: authUser.displayName || authUser.email,
+      requestedAt: Date.now(),
+    };
+    await stableSet(stableCode, fresh);
+    setDone(true);
+    setBusy(false);
+  }
+
+  if (loading) return <div className="loader"><span/><span/><span/></div>;
+  if (!stable) return (
+    <div style={{ padding: 32, textAlign: "center", color: C.muted }}>
+      <div style={{ fontSize: 48, marginBottom: 12 }}>🔍</div>
+      <div>Stable not found — check your invite link</div>
+      <button className="btn btn-outline btn-sm" style={{ marginTop: 16 }} onClick={onBack}>Back</button>
+    </div>
+  );
+
+  const memberCount = Object.values(stable.members || {}).filter(m => m.status === "active").length;
+
+  return (
+    <div style={{ paddingTop: 40, display: "flex", flexDirection: "column", alignItems: "center",
+      padding: "40px 24px" }} className="fade">
+      <div style={{ fontSize: 56, marginBottom: 16 }}>🏠</div>
+      <div style={{ fontFamily: "'DM Serif Display', serif", fontSize: 26, color: C.text,
+        textAlign: "center", marginBottom: 8 }}>{stable.name}</div>
+      <div style={{ fontSize: 14, color: C.muted, marginBottom: 32 }}>
+        {memberCount} member{memberCount !== 1 ? "s" : ""}
+      </div>
+
+      {done ? (
+        <div style={{ textAlign: "center" }}>
+          <div style={{ fontSize: 48, marginBottom: 12 }}>✅</div>
+          <div style={{ fontWeight: 700, fontSize: 18, color: C.text, marginBottom: 8 }}>Request sent!</div>
+          <div style={{ fontSize: 14, color: C.muted, marginBottom: 24 }}>
+            The stable creator will approve your request shortly
+          </div>
+          <button className="btn btn-outline btn-sm" onClick={onBack}>Back to home</button>
+        </div>
+      ) : (
+        <>
+          {err && <div className="err" style={{ marginBottom: 16, width: "100%", maxWidth: 360 }}>{err}</div>}
+          <button className="btn btn-pink" style={{ width: "100%", maxWidth: 360 }}
+            disabled={busy} onClick={requestJoin}>
+            {busy ? "Sending request…" : `Request to join ${stable.name}`}
+          </button>
+          <button className="btn btn-ghost" style={{ marginTop: 12 }} onClick={onBack}>Cancel</button>
+        </>
+      )}
     </div>
   );
 }
@@ -3003,7 +3671,10 @@ function ProfileScreen({ authUser, onBack, onRejoin }) {
 export default function App() {
   const [authUser,  setAuthUser]  = useState(undefined); // undefined = loading, null = guest
   const [showProfile, setShowProfile] = useState(false);
+  const [showStables, setShowStables] = useState(false);
+  const [joinStableCode, setJoinStableCode] = useState(null); // pending stable invite
   const [newBadges,   setNewBadges]   = useState([]); // badges to celebrate
+  const [stableNotifs, setStableNotifs] = useState([]); // pending stable challenges
   const [screen,    setScreen]  = useState("home");
   const [ch,        setCh]      = useState(null);
   const [pid,       setPid]     = useState(null);
@@ -3068,17 +3739,41 @@ export default function App() {
 
   const isCreator = ch?.creatorId === pid;
 
-  // Handle ?code=XXXXX&player=yyy deep links
+  // Handle deep links — ?code=XXXXX&player=yyy and ?joinStable=SXXXXX
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
+    window.history.replaceState({}, "", window.location.pathname);
+    const stableCode = params.get("joinStable")?.toUpperCase();
+    if (stableCode) { setJoinStableCode(stableCode); return; }
     const code   = params.get("code")?.toUpperCase();
     const player = params.get("player");
-    if (code && player) {
-      // Clear URL params without reloading
-      window.history.replaceState({}, "", window.location.pathname);
-      rejoinChallenge(code, player);
-    }
+    if (code && player) rejoinChallenge(code, player);
   }, []);
+
+  // Check for stable challenge notifications on home screen
+  useEffect(() => {
+    if (!authUser?.uid || screen !== "home") return;
+    let cancelled = false;
+    async function checkStableNotifs() {
+      const stables = await getUserStables(authUser.uid);
+      const notifs = [];
+      for (const { code } of stables) {
+        const stable = await stableGet(code);
+        if (!stable) continue;
+        for (const [chCode, chInfo] of Object.entries(stable.challenges || {})) {
+          // Show notification if player hasn't joined this challenge yet
+          if (chInfo.creatorUid === authUser.uid) continue; // skip own challenges
+          const ch = await dbGet(chCode);
+          if (!ch || ch.players?.[authUser.uid]) continue; // already joined
+          if (ch.status !== "selections" && ch.status !== "open") continue;
+          notifs.push({ stableName: stable.name, stableCode: code, chCode, chInfo });
+        }
+      }
+      if (!cancelled) setStableNotifs(notifs);
+    }
+    checkStableNotifs();
+    return () => { cancelled = true; };
+  }, [authUser?.uid, screen]);
 
   // NR check at App level — fires whenever ch changes, regardless of screen
   useEffect(() => {
@@ -3157,18 +3852,45 @@ export default function App() {
   }
 
   async function handleCreate(name) {
-    // If logged in, use uid as playerId for cross-device continuity
     const playerId = authUser?.uid || genCode(8);
     const code = genCode(5);
     const displayName = authUser?.displayName || name;
     const p = { id: playerId, name: displayName, picks: {}, picksSubmitted: false,
       uid: authUser?.uid || null };
     const today = new Date().toLocaleDateString("en-CA", { timeZone: "Europe/London" });
+
+    // Auto-add active stable members as players
+    let players = { [playerId]: p };
+    let stableCodes = [];
+    if (authUser?.uid) {
+      const stables = await getUserStables(authUser.uid);
+      stableCodes = stables.map(s => s.code);
+      for (const { code: sc } of stables) {
+        const stable = await stableGet(sc);
+        if (!stable) continue;
+        Object.values(stable.members || {}).forEach(m => {
+          if (m.status !== "active" || m.uid === authUser.uid) return;
+          players[m.uid] = { id: m.uid, name: m.name, picks: {}, picksSubmitted: false, uid: m.uid };
+        });
+      }
+    }
+
     const newCh = { code, creatorId: playerId, creatorUid: authUser?.uid || null,
-      status: "open", day: today, players: { [playerId]: p },
-      selectedRaces: [], selectedRaceIds: [], racecards: [] };
+      status: "open", day: today, players,
+      selectedRaces: [], selectedRaceIds: [], racecards: [],
+      stableCodes: stableCodes.length ? stableCodes : null };
     await dbSet(code, newCh);
     await addChallengeToUserIndex(authUser?.uid, code);
+
+    // Register challenge on each stable
+    for (const sc of stableCodes) {
+      const stable = await stableGet(sc);
+      if (!stable) continue;
+      stable.challenges = stable.challenges || {};
+      stable.challenges[code] = { code, day: today, creatorUid: authUser.uid };
+      await stableSet(sc, stable);
+    }
+
     setCh(newCh); setPid(playerId); setPlayer(p);
     saveSession(code, playerId, displayName);
     setSession({ code, playerId, playerName: displayName });
@@ -3335,14 +4057,21 @@ export default function App() {
               padding: "8px 0", marginBottom: 8, borderBottom: `1px solid ${C.border}` }}>
               {authUser ? (
                 <>
-                  <button onClick={() => setShowProfile(true)}
-                    style={{ background: "none", border: "none", cursor: "pointer",
-                      fontFamily: "inherit", textAlign: "left", padding: 0 }}>
-                    <div style={{ fontSize: 13, color: C.muted }}>
-                      👤 <strong style={{ color: C.text }}>{authUser.displayName || authUser.email}</strong>
-                      <span style={{ color: C.blue, marginLeft: 6, fontSize: 12 }}>View profile →</span>
-                    </div>
-                  </button>
+                  <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+                    <button onClick={() => setShowProfile(true)}
+                      style={{ background: "none", border: "none", cursor: "pointer",
+                        fontFamily: "inherit", textAlign: "left", padding: 0 }}>
+                      <div style={{ fontSize: 13, color: C.muted }}>
+                        👤 <strong style={{ color: C.text }}>{authUser.displayName || authUser.email}</strong>
+                        <span style={{ color: C.blue, marginLeft: 6, fontSize: 12 }}>Profile →</span>
+                      </div>
+                    </button>
+                    <button onClick={() => setShowStables(true)}
+                      style={{ background: "none", border: "none", cursor: "pointer",
+                        fontFamily: "inherit", fontSize: 12, color: C.blue, fontWeight: 600, padding: 0 }}>
+                      🏠 Stables
+                    </button>
+                  </div>
                   <button onClick={async () => {
                       await signOut(auth);
                       sessionStorage.removeItem("sm_guest");
@@ -3383,12 +4112,55 @@ export default function App() {
               </div>
             )}
 
+            {/* Stable challenge notifications */}
+            {stableNotifs.map(notif => (
+              <div key={notif.chCode} style={{ background: C.blue, color: "#fff",
+                padding: "12px 16px", borderRadius: 12, marginBottom: 10,
+                display: "flex", alignItems: "center", gap: 10 }}>
+                <span style={{ fontSize: 20 }}>🏠</span>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: 700, fontSize: 14 }}>
+                    You've been added to a challenge in {notif.stableName}
+                  </div>
+                  <div style={{ fontSize: 12, opacity: 0.85 }}>
+                    Make your picks before the first race goes off
+                  </div>
+                </div>
+                <button onClick={async () => {
+                  const fresh = await dbGet(notif.chCode);
+                  if (fresh) {
+                    setCh(normaliseChallenge(fresh));
+                    setPid(authUser.uid);
+                    setPlayer(fresh.players[authUser.uid]);
+                    saveSession(notif.chCode, authUser.uid, authUser.displayName || authUser.email);
+                    setSession({ code: notif.chCode, playerId: authUser.uid, playerName: authUser.displayName || authUser.email });
+                    await addChallengeToUserIndex(authUser.uid, notif.chCode);
+                    setScreen("picks");
+                  }
+                }} style={{ background: "rgba(255,255,255,.25)", border: "none", color: "#fff",
+                  borderRadius: 8, padding: "6px 12px", fontSize: 13, fontWeight: 700,
+                  cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>
+                  Pick now →
+                </button>
+              </div>
+            ))}
+
             {/* Start / Join panels */}
             {showAbout && <AboutModal onClose={() => setShowAbout(false)} />}
             <HomeScreen onCreate={handleCreate} onJoin={handleJoin} openAbout={() => setShowAbout(true)} authUser={authUser} />
           </>
         )}
-        {showProfile && authUser ? (
+        {joinStableCode && (
+          <JoinStableScreen
+            authUser={authUser}
+            stableCode={joinStableCode}
+            onJoined={() => setJoinStableCode(null)}
+            onBack={() => setJoinStableCode(null)}
+          />
+        )}
+        {!joinStableCode && showStables && authUser ? (
+          <StablesScreen authUser={authUser} onBack={() => setShowStables(false)} />
+        ) : !joinStableCode && showProfile && authUser ? (
           <ProfileScreen
             authUser={authUser}
             onBack={() => setShowProfile(false)}
@@ -3403,7 +4175,7 @@ export default function App() {
               }
             }}
           />
-        ) : (
+        ) : !joinStableCode ? (
           <>
             {screen === "setup"   && ch && <SetupScreen   challenge={ch} onSave={handleSetupSave} onBack={() => setScreen("home")} />}
             {screen === "lobby"   && ch && <LobbyScreen   challenge={ch} playerId={pid} onAction={handleLobbyAction} onBack={() => setScreen("home")} deepLink={deepLink} />}
