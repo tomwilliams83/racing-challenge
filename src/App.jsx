@@ -4033,7 +4033,7 @@ export default function App() {
           );
         })()}
 
-        {!showProfile && screen === "home" && (
+        {!showProfile && !showStables && screen === "home" && (
           <>
             {showOnboarding && <OnboardingModal onDone={() => setShowOnboarding(false)} />}
             {/* A2HS — small dark bar at top */}
