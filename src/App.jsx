@@ -1148,7 +1148,7 @@ function ManageStable({ authUser, stableCode, onBack, onUpdated, showToast }) {
 
       {/* Tabs */}
       <div className="tabs" style={{ marginBottom: 16 }}>
-        {[["league","🏆 League"],["members","👥 Members"]].map(([id, label]) => (
+        {[["league","🏆 League"],["records","🎖️ Records"],["members","👥 Members"]].map(([id, label]) => (
           <button key={id} className={`tab${tab === id ? " on" : ""}`} onClick={() => setTab(id)}>{label}</button>
         ))}
       </div>
@@ -1205,6 +1205,11 @@ function ManageStable({ authUser, stableCode, onBack, onUpdated, showToast }) {
         </div>
       )}
 
+      {/* RECORDS */}
+      {tab === "records" && (
+        <StableRecords stable={stable} activeMembers={activeMembers} />
+      )}
+
       {/* MEMBERS */}
       {tab === "members" && (
         <div className="fade">
@@ -1248,6 +1253,147 @@ function ManageStable({ authUser, stableCode, onBack, onUpdated, showToast }) {
           onClose={() => setSelMember(null)}
         />
       )}
+    </div>
+  );
+}
+
+function StableRecords({ stable, activeMembers }) {
+  const [records, setRecords] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function compute() {
+      const chCodes = Object.keys(stable.challenges || {});
+      const challenges = await Promise.all(chCodes.map(code => dbGet(code)));
+      if (cancelled) return;
+
+      // Records to find
+      let mostDonuts    = null; // { name, count }
+      let highestScore  = null; // { name, score, code, day }
+      let biggestWinner = null; // { name, horse, sp, dec, code }
+      let biggestPlace  = null; // { name, horse, sp, dec, code }
+
+      const donutCounts = {};
+      const memberNames = {};
+      activeMembers.forEach(m => { memberNames[m.uid] = m.name; });
+
+      challenges.filter(Boolean).forEach(ch => {
+        const races = toArr(ch.selectedRaces || []);
+        const hasResults = races.some(r => r.resultIn);
+        if (!hasResults) return;
+
+        Object.values(ch.players || {}).forEach(p => {
+          const uid = p.uid || p.id;
+          if (!memberNames[uid]) return;
+          const name = memberNames[uid];
+
+          let chReturn = 0, chStaked = 0;
+          races.forEach(race => {
+            if (!race.resultIn) return;
+            const pick = p.picks?.[race.id];
+            if (!pick?.horseId) return;
+            const horse = race.runners?.find(h => h.id === pick.horseId);
+            if (!horse) return;
+            const isNap = p.napRaceId === race.id;
+            const ret = calcSelectionReturn(horse.sp, pick.betType || "win", horse.position, race.ewTerms, isNap, horse.spDec);
+            chReturn += ret.total;
+            chStaked += ret.staked;
+
+            // Biggest priced winner
+            if (horse.position === 1 && horse.sp) {
+              const dec = horse.spDec || spToDecimal(horse.sp);
+              if (dec && (!biggestWinner || dec > biggestWinner.dec)) {
+                biggestWinner = { name, horse: horse.name, sp: horse.sp, dec, day: ch.day };
+              }
+            }
+            // Biggest priced placed horse (non-winner)
+            if (horse.position > 1 && race.ewTerms && horse.position <= race.ewTerms.places && horse.sp) {
+              const dec = horse.spDec || spToDecimal(horse.sp);
+              if (dec && (!biggestPlace || dec > biggestPlace.dec)) {
+                biggestPlace = { name, horse: horse.name, sp: horse.sp, dec, day: ch.day };
+              }
+            }
+          });
+
+          // Donut
+          if (chReturn === 0 && chStaked > 0) {
+            donutCounts[uid] = (donutCounts[uid] || 0) + 1;
+          }
+
+          // Highest score
+          if (!highestScore || chReturn > highestScore.score) {
+            highestScore = { name, score: +chReturn.toFixed(2), day: ch.day };
+          }
+        });
+      });
+
+      // Most donuts
+      const donutEntries = Object.entries(donutCounts);
+      if (donutEntries.length) {
+        const [topUid, topCount] = donutEntries.sort((a, b) => b[1] - a[1])[0];
+        mostDonuts = { name: memberNames[topUid] || "Unknown", count: topCount };
+      }
+
+      if (!cancelled) {
+        setRecords({ mostDonuts, highestScore, biggestWinner, biggestPlace });
+        setLoading(false);
+      }
+    }
+    compute();
+    return () => { cancelled = true; };
+  }, [stable.code]);
+
+  if (loading) return <div className="loader"><span/><span/><span/></div>;
+
+  const items = [
+    records.highestScore && {
+      icon: "⭐", title: "Highest Ever Score",
+      value: `${records.highestScore.score} pts`,
+      sub: `${records.highestScore.name} · ${records.highestScore.day}`,
+    },
+    records.biggestWinner && {
+      icon: "🚀", title: "Biggest Priced Winner",
+      value: records.biggestWinner.sp,
+      sub: `${records.biggestWinner.horse} · ${records.biggestWinner.name} · ${records.biggestWinner.day}`,
+    },
+    records.biggestPlace && {
+      icon: "🎯", title: "Biggest Priced Placed Horse",
+      value: records.biggestPlace.sp,
+      sub: `${records.biggestPlace.horse} · ${records.biggestPlace.name} · ${records.biggestPlace.day}`,
+    },
+    records.mostDonuts && {
+      icon: "🍩", title: "Most Donuts",
+      value: `${records.mostDonuts.count}`,
+      sub: records.mostDonuts.name,
+    },
+  ].filter(Boolean);
+
+  if (!items.length) return (
+    <div style={{ textAlign: "center", padding: 40, color: C.muted }} className="fade">
+      <div style={{ fontSize: 40, marginBottom: 12 }}>🎖️</div>
+      <div style={{ fontSize: 15, fontWeight: 600, color: C.text, marginBottom: 8 }}>No records yet</div>
+      <div style={{ fontSize: 14 }}>Records will appear once challenges have been completed</div>
+    </div>
+  );
+
+  return (
+    <div className="fade">
+      {items.map(({ icon, title, value, sub }) => (
+        <div key={title} style={{ background: "#fff", border: `1.5px solid ${C.border}`,
+          borderRadius: 14, padding: "16px 18px", marginBottom: 10,
+          display: "flex", alignItems: "center", gap: 14 }}>
+          <div style={{ fontSize: 36, flexShrink: 0 }}>{icon}</div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 12, color: C.muted, fontWeight: 600, textTransform: "uppercase",
+              letterSpacing: 1, marginBottom: 4 }}>{title}</div>
+            <div style={{ fontFamily: "'DM Serif Display', serif", fontSize: 24, color: C.text }}>
+              {value}
+            </div>
+            <div style={{ fontSize: 12, color: C.muted, marginTop: 3 }}>{sub}</div>
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
@@ -1615,7 +1761,7 @@ function BadgeCelebrationModal({ badges, badgeDefs, onDismiss }) {
 }
 
 // ── AUTH SCREENS ─────────────────────────────────────────────────────────────
-function AuthScreen({ onAuth }) {
+function AuthScreen({ onAuth, joinStableCode }) {
   const [mode,     setMode]     = useState("login"); // login | register | reset
   const [email,    setEmail]    = useState("");
   const [password, setPassword] = useState("");
@@ -1789,17 +1935,27 @@ function AuthScreen({ onAuth }) {
           )}
         </div>
 
-        {/* Guest option */}
-        <div style={{ textAlign: "center", marginTop: 24 }}>
-          <button onClick={() => onAuth(null)}
-            style={{ background: "none", border: "none", color: C.mutedLt, cursor: "pointer",
-              fontFamily: "inherit", fontSize: 13 }}>
-            Continue as guest →
-          </button>
-          <div style={{ fontSize: 11, color: C.mutedLt, marginTop: 4 }}>
-            Guests can join challenges but won't have stats or stables
+        {/* Stable join context */}
+        {joinStableCode && (
+          <div style={{ background: C.blueBg, border: `1.5px solid ${C.blue}`, borderRadius: 10,
+            padding: "10px 14px", marginTop: 16, fontSize: 13, color: C.blue, textAlign: "center" }}>
+            🏠 Sign in to request to join this stable
           </div>
-        </div>
+        )}
+
+        {/* Guest option */}
+        {!joinStableCode && (
+          <div style={{ textAlign: "center", marginTop: 24 }}>
+            <button onClick={() => onAuth(null)}
+              style={{ background: "none", border: "none", color: C.mutedLt, cursor: "pointer",
+                fontFamily: "inherit", fontSize: 13 }}>
+              Continue as guest →
+            </button>
+            <div style={{ fontSize: 11, color: C.mutedLt, marginTop: 4 }}>
+              Guests can join challenges but won't have stats or stables
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -3315,6 +3471,69 @@ function computeBadges(uid, history) {
   return [...BADGES];
 }
 
+// ── PROFILE HEADER (with display name editing) ───────────────────────────────
+function ProfileHeader({ authUser }) {
+  const [editing, setEditing] = useState(false);
+  const [name,    setName]    = useState(authUser?.displayName || "");
+  const [saving,  setSaving]  = useState(false);
+  const [toast,   showToast]  = useToast();
+
+  async function saveName() {
+    if (!name.trim() || name.trim() === authUser.displayName) { setEditing(false); return; }
+    setSaving(true);
+    try {
+      await updateProfile(authUser, { displayName: name.trim() });
+      // Also update in Firebase users collection
+      const profile = await userGet(authUser.uid);
+      if (profile) await userSet(authUser.uid, { ...profile, name: name.trim() });
+      showToast("Name updated ✅");
+      setEditing(false);
+    } catch (e) { showToast("Failed to update name"); }
+    setSaving(false);
+  }
+
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 24,
+      padding: 16, background: "#fff", borderRadius: 16, border: `1.5px solid ${C.border}` }}>
+      <Toast msg={toast} />
+      <div style={{ width: 56, height: 56, borderRadius: "50%", background: C.pink,
+        display: "flex", alignItems: "center", justifyContent: "center",
+        fontSize: 24, color: "#fff", fontWeight: 700, flexShrink: 0 }}>
+        {(authUser.displayName || authUser.email || "?")[0].toUpperCase()}
+      </div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        {editing ? (
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <input className="inp" value={name} onChange={e => setName(e.target.value)}
+              style={{ fontSize: 15, padding: "6px 10px", flex: 1 }}
+              onKeyDown={e => e.key === "Enter" && saveName()}
+              autoFocus />
+            <button className="btn btn-pink btn-sm" disabled={saving} onClick={saveName}>
+              {saving ? "…" : "Save"}
+            </button>
+            <button className="btn btn-outline btn-sm" onClick={() => setEditing(false)}>✕</button>
+          </div>
+        ) : (
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <div style={{ fontFamily: "'DM Serif Display', serif", fontSize: 20, color: C.text }}>
+              {authUser.displayName || "Anonymous"}
+            </div>
+            <button onClick={() => setEditing(true)}
+              style={{ background: "none", border: "none", color: C.mutedLt, cursor: "pointer",
+                fontSize: 13, padding: 0, lineHeight: 1 }}>
+              ✏️
+            </button>
+          </div>
+        )}
+        <div style={{ fontSize: 13, color: C.muted, marginTop: 2, overflow: "hidden",
+          textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {authUser.email}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── PROFILE SCREEN ───────────────────────────────────────────────────────────
 function ProfileScreen({ authUser, onBack, onRejoin }) {
   const [profile,    setProfile]    = useState(null);
@@ -3453,23 +3672,7 @@ function ProfileScreen({ authUser, onBack, onRejoin }) {
       <button className="btn btn-outline btn-sm" style={{ marginBottom: 16 }} onClick={onBack}>← Back</button>
 
       {/* Header */}
-      <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 24,
-        padding: 16, background: "#fff", borderRadius: 16, border: `1.5px solid ${C.border}` }}>
-        <div style={{ width: 56, height: 56, borderRadius: "50%", background: C.pink,
-          display: "flex", alignItems: "center", justifyContent: "center",
-          fontSize: 24, color: "#fff", fontWeight: 700, flexShrink: 0 }}>
-          {(authUser.displayName || authUser.email || "?")[0].toUpperCase()}
-        </div>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontFamily: "'DM Serif Display', serif", fontSize: 20, color: C.text }}>
-            {authUser.displayName || "Anonymous"}
-          </div>
-          <div style={{ fontSize: 13, color: C.muted, marginTop: 2, overflow: "hidden",
-            textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-            {authUser.email}
-          </div>
-        </div>
-      </div>
+      <ProfileHeader authUser={authUser} />
 
       {/* Tabs */}
       <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
@@ -3946,11 +4149,10 @@ export default function App() {
       if (user) {
         setAuthUser(user);
       } else {
-        // Guest — set flag so we don't show auth screen again this session
         sessionStorage.setItem("sm_guest", "1");
         setAuthUser(null);
       }
-    }} />
+    }} joinStableCode={joinStableCode} />
   );
 
   if (rejoining) return (
