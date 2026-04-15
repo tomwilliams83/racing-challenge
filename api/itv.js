@@ -1,11 +1,22 @@
-// api/itv.js — admin endpoint to get/set ITV races
+import { initializeApp, getApps } from 'firebase/app';
+import { getDatabase, ref, get, set } from 'firebase/database';
+
+const firebaseConfig = {
+  apiKey:      process.env.VITE_FIREBASE_API_KEY,
+  databaseURL: process.env.VITE_FIREBASE_DATABASE_URL,
+  projectId:   process.env.VITE_FIREBASE_PROJECT_ID,
+  appId:       process.env.VITE_FIREBASE_APP_ID,
+};
+
+const app = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
+const db  = getDatabase(app);
+
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   if (req.method === 'OPTIONS') return res.status(200).end();
 
-  // Simple admin auth — separate env var
   const adminKey = process.env.ADMIN_KEY;
   if (req.method === 'POST') {
     const auth = req.headers.authorization;
@@ -13,23 +24,6 @@ export default async function handler(req, res) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
   }
-
-  // We store ITV races in a Firebase-style flat file via KV
-  // For now just proxy through — the actual storage is in Firebase
-  // GET: return current ITV race IDs
-  // POST: set ITV race IDs { raceIds: [...], label: "ITV7 - Saturday 22 March" }
-  const { initializeApp, getApps } = await import('firebase/app');
-  const { getDatabase, ref, get, set } = await import('firebase/database');
-
-  const firebaseConfig = {
-    apiKey:      process.env.VITE_FIREBASE_API_KEY,
-    databaseURL: process.env.VITE_FIREBASE_DATABASE_URL,
-    projectId:   process.env.VITE_FIREBASE_PROJECT_ID,
-    appId:       process.env.VITE_FIREBASE_APP_ID,
-  };
-
-  const app = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
-  const db  = getDatabase(app);
 
   if (req.method === 'GET') {
     const snap = await get(ref(db, 'admin/itvCard'));
