@@ -909,13 +909,27 @@ function BadgeCelebrationModal({ badges, badgeDefs, onDismiss }) {
           {badge.desc}
         </div>
 
-        {/* Dismiss button */}
-        <button onClick={() => {
-          if (isLast) { onDismiss(); }
-          else { setIdx(i => i + 1); }
-        }} className="btn btn-pink" style={{ width: "100%", fontSize: 18, padding: "16px 32px" }}>
-          {isLast ? "Cheers! 🥂" : `Next Badge →`}
-        </button>
+        {/* Share + Dismiss buttons */}
+        <div style={{ display: "flex", gap: 10, width: "100%" }}>
+          <button onClick={async () => {
+            const text = `${badge.icon} I just earned the "${badge.label}" badge on StableMates! 🐴`;
+            if (navigator.share) {
+              try { await navigator.share({ title: "StableMates Badge", text }); } catch {}
+            } else {
+              try { await navigator.clipboard.writeText(text); } catch {}
+            }
+          }} style={{ flex: 1, padding: "16px 12px", borderRadius: 12, border: "1.5px solid rgba(255,255,255,.3)",
+            background: "rgba(255,255,255,.12)", color: "#fff", fontFamily: "inherit",
+            fontSize: 15, fontWeight: 600, cursor: "pointer" }}>
+            Share 📤
+          </button>
+          <button onClick={() => {
+            if (isLast) { onDismiss(); }
+            else { setIdx(i => i + 1); }
+          }} className="btn btn-pink" style={{ flex: 2, fontSize: 18, padding: "16px 24px" }}>
+            {isLast ? "Cheers! 🥂" : `Next Badge →`}
+          </button>
+        </div>
 
         {badges.length > 1 && (
           <div style={{ display: "flex", gap: 6, marginTop: 20 }}>
