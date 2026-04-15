@@ -187,9 +187,9 @@ const GLOBAL_CSS = `
   .race-row:hover { border-color: ${C.blue}; box-shadow: 0 3px 14px rgba(26,127,212,.1); transform: translateY(-1px); }
   .race-row.sel { border-color: ${C.pink}; background: ${C.pinkBg}; box-shadow: 0 3px 14px rgba(255,10,108,.12); }
 
-  .horse-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 13px; }
+  .horse-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 13px; overflow: hidden; }
   @media(max-width:420px){ .horse-grid { grid-template-columns: 1fr; } }
-  .hbtn { background: ${C.bg}; border: 1.5px solid ${C.border}; border-radius: 10px; padding: 10px 13px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; width: 100%; color: ${C.text}; font-family: 'DM Sans', sans-serif; font-size: 14px; transition: all .15s; text-align: left; }
+  .hbtn { background: ${C.bg}; border: 1.5px solid ${C.border}; border-radius: 10px; padding: 10px 13px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; width: 100%; min-width: 0; overflow: hidden; color: ${C.text}; font-family: 'DM Sans', sans-serif; font-size: 14px; transition: all .15s; text-align: left; }
   .hbtn:hover { border-color: ${C.pink}; background: ${C.pinkBg}; }
   .hbtn.win-picked { background: ${C.pink}; border-color: ${C.pinkDk}; color: #fff; font-weight: 600; box-shadow: 0 3px 10px rgba(255,10,108,.35); }
   .hbtn.ew-picked  { background: ${C.place}; border-color: #5b21b6; color: #fff; font-weight: 600; }
@@ -1862,18 +1862,13 @@ function PicksScreen({ challenge, playerId, onSubmit, onBack, editMode = false }
         <div style={{ textAlign: "center", marginTop: 20, marginBottom: 24 }}>
           {napWarning && (
             <div className="card" style={{ background: "#fff8ee", borderColor: "#ffb700", marginBottom: 14, textAlign: "left" }}>
-              <div style={{ fontWeight: 700, color: "#b36000", marginBottom: 6 }}>⭐ You haven't set a NAP!</div>
+              <div style={{ fontWeight: 700, color: "#b36000", marginBottom: 6 }}>⭐ You need to set a NAP!</div>
               <div style={{ fontSize: 13, color: "#b36000", marginBottom: 12 }}>
-                Your NAP doubles your stake on one race. Are you sure you want to submit without one?
+                Pick your strongest fancy and mark it as your NAP before submitting.
               </div>
-              <div style={{ display: "flex", gap: 8 }}>
-                <button className="btn btn-outline btn-sm" onClick={() => setNapWarning(false)}>
-                  Go back & pick NAP
-                </button>
-                <button className="btn btn-pink btn-sm" onClick={async () => { setNapWarning(false); setSaving(true); const fresh = (await dbGet(challenge.code)) || challenge; const updatedPlayer = { ...player, picks, napRaceId: null, picksSubmitted: true }; fresh.players[playerId] = updatedPlayer; await dbSet(fresh.code, fresh); setSaving(false); showToast("Picks locked in! 🏁"); setTimeout(() => onSubmit(fresh, updatedPlayer), 700); }}>
-                  Submit without NAP
-                </button>
-              </div>
+              <button className="btn btn-outline btn-sm" onClick={() => setNapWarning(false)}>
+                Go back &amp; pick NAP
+              </button>
             </div>
           )}
           <button className="btn btn-pink"
@@ -2179,7 +2174,6 @@ function ResultsScreen({ challenge, playerId, isCreator, onBack }) {
           <div className="pts-sub">
             {me.wins} winner{me.wins !== 1 ? "s" : ""}
             {me.places > 0 ? ` · ${me.places} placed` : ""}
-            {me.napRaceId ? " · NAP ⭐" : ""}
             {" "}· {me.totalStaked} pts staked
           </div>
           {me.totalStaked > 0 && (
@@ -2203,7 +2197,7 @@ function ResultsScreen({ challenge, playerId, isCreator, onBack }) {
                 {p.id === playerId ? <span style={{ color: C.muted, fontSize: 13, fontWeight: 400 }}> (you)</span> : ""}
               </div>
               <div style={{ fontSize: 13, color: C.muted, marginTop: 2 }}>
-                {p.wins}W{p.places > 0 ? ` · ${p.places}P` : ""}{p.napRaceId ? " · NAP ⭐" : ""} · {p.totalStaked} pts staked
+                {p.wins}W{p.places > 0 ? ` · ${p.places}P` : ""} · {p.totalStaked} pts staked
                 {!p.picksSubmitted ? " · ⏳ pending" : ""}
               </div>
             </div>
@@ -2299,7 +2293,7 @@ function ResultsScreen({ challenge, playerId, isCreator, onBack }) {
                                 color: pk.isNap ? "#b36000" : pk.betType === "ew" ? C.blue : C.pink,
                                 border: `1px solid ${pk.isNap ? "#ffb700" : pk.betType === "ew" ? C.borderDk : C.pinkLt}`,
                               }}>
-                                {pk.name}{pk.isNap ? " ⭐" : pk.betType === "ew" ? " EW" : ""}
+                                {pk.name}{pk.isNap ? ` ⭐ ${pk.betType === "ew" ? "EW" : "Win"}` : pk.betType === "ew" ? " EW" : ""}
                               </span>
                             ))}
                           </span>
@@ -2402,7 +2396,7 @@ function ResultsScreen({ challenge, playerId, isCreator, onBack }) {
 
           <div style={{ borderTop: `1.5px solid ${C.border}`, marginTop: 16, paddingTop: 14, textAlign: "right" }}>
             <div style={{ color: C.muted, fontSize: 13, fontWeight: 500, marginBottom: 4 }}>
-              Total staked: {me.totalStaked} pts{me.napRaceId ? " · NAP ⭐" : ""}
+              Total staked: {me.totalStaked} pts
             </div>
             <div style={{ fontFamily: "'DM Serif Display', serif", fontSize: 28, color: C.pink }}>
               {fmtPts(me.totalReturn)}
