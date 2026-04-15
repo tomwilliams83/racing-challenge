@@ -810,6 +810,128 @@ function OnboardingModal({ onDone }) {
   );
 }
 
+// ── BADGE DEFINITIONS (top-level so App + ProfileScreen can both use) ───────
+const BADGE_DEFS = {
+  first_challenge: { icon: "🎟️", label: "First Challenge",  desc: "Entered your first StableMates challenge" },
+  winner:          { icon: "🏆", label: "Challenge Winner",  desc: "Won a StableMates challenge" },
+  podium:          { icon: "🥈", label: "Podium",            desc: "Finished 2nd or 3rd in a challenge" },
+  donut:           { icon: "🍩", label: "Donut",             desc: "Scored zero in a challenge" },
+  twenty_to_one:   { icon: "🎯", label: "20/1 Winner",       desc: "Backed a winner at 20/1 or bigger" },
+  fifty_to_one:    { icon: "🚀", label: "50/1 Winner",       desc: "Backed a winner at 50/1 or bigger" },
+  century:         { icon: "💯", label: "Century",           desc: "Backed a winner at 100/1 or bigger" },
+  veteran:         { icon: "🎪", label: "Veteran",           desc: "Entered 10 challenges" },
+  seasoned:        { icon: "🏟️", label: "Seasoned",          desc: "Entered 25 challenges" },
+  legend:          { icon: "🌟", label: "Legend",            desc: "Entered 50 challenges" },
+  hat_trick:       { icon: "🔥", label: "Hat Trick",         desc: "Entered 3 challenges in a row" },
+  in_the_black:    { icon: "📈", label: "In The Black",      desc: "Turned a profit in 3 challenges in a row" },
+  stable_master:   { icon: "🏠", label: "Stable Master",     desc: "Created a Stable" },
+};
+
+// ── BADGE CELEBRATION ────────────────────────────────────────────────────────
+const CONFETTI_COLOURS = ["#ff007f","#1a7fd4","#ffb700","#00b86b","#7c3aed","#ff4dab","#4aa8f0"];
+
+function Confetti() {
+  const pieces = Array.from({ length: 60 }, (_, i) => ({
+    id: i,
+    colour: CONFETTI_COLOURS[i % CONFETTI_COLOURS.length],
+    left: Math.random() * 100,
+    delay: Math.random() * 1.2,
+    duration: 2 + Math.random() * 2,
+    size: 6 + Math.random() * 8,
+    rotation: Math.random() * 360,
+    isRect: Math.random() > 0.5,
+  }));
+  return (
+    <div style={{ position: "fixed", inset: 0, pointerEvents: "none", zIndex: 800, overflow: "hidden" }}>
+      {pieces.map(p => (
+        <div key={p.id} style={{
+          position: "absolute",
+          left: `${p.left}%`,
+          top: -20,
+          width: p.isRect ? p.size * 0.6 : p.size,
+          height: p.size,
+          background: p.colour,
+          borderRadius: p.isRect ? 2 : "50%",
+          animation: `confettiFall ${p.duration}s ${p.delay}s ease-in forwards`,
+          transform: `rotate(${p.rotation}deg)`,
+          opacity: 0.9,
+        }} />
+      ))}
+      <style>{`
+        @keyframes confettiFall {
+          0%   { transform: translateY(0) rotate(0deg); opacity: 1; }
+          100% { transform: translateY(110vh) rotate(720deg); opacity: 0; }
+        }
+      `}</style>
+    </div>
+  );
+}
+
+function BadgeCelebrationModal({ badges, badgeDefs, onDismiss }) {
+  const [idx, setIdx] = useState(0);
+  if (!badges?.length) return null;
+  const badge = badgeDefs[badges[idx]];
+  if (!badge) { onDismiss(); return null; }
+  const isLast = idx === badges.length - 1;
+
+  return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 700, display: "flex",
+      flexDirection: "column", alignItems: "center", justifyContent: "center",
+      background: "rgba(13,45,74,0.92)", padding: 24 }}>
+      <Confetti />
+      <div style={{ position: "relative", zIndex: 1, textAlign: "center",
+        display: "flex", flexDirection: "column", alignItems: "center",
+        maxWidth: 360, width: "100%" }}>
+
+        {/* Badge count */}
+        {badges.length > 1 && (
+          <div style={{ fontSize: 12, letterSpacing: 2, color: "rgba(255,255,255,.5)",
+            fontWeight: 600, marginBottom: 16, textTransform: "uppercase" }}>
+            Badge {idx + 1} of {badges.length}
+          </div>
+        )}
+
+        {/* Badge icon */}
+        <div style={{ fontSize: 96, marginBottom: 24, animation: "badgePop .5s ease",
+          filter: "drop-shadow(0 8px 24px rgba(255,0,127,.4))" }}>
+          {badge.icon}
+        </div>
+
+        {/* Badge name */}
+        <div style={{ fontFamily: "'DM Serif Display', serif", fontSize: 32,
+          color: "#fff", marginBottom: 12, lineHeight: 1.2 }}>
+          {badge.label}
+        </div>
+
+        {/* Badge description */}
+        <div style={{ fontSize: 16, color: "rgba(255,255,255,.7)", marginBottom: 40,
+          lineHeight: 1.6, maxWidth: 280 }}>
+          {badge.desc}
+        </div>
+
+        {/* Dismiss button */}
+        <button onClick={() => {
+          if (isLast) { onDismiss(); }
+          else { setIdx(i => i + 1); }
+        }} className="btn btn-pink" style={{ width: "100%", fontSize: 18, padding: "16px 32px" }}>
+          {isLast ? "Cheers! 🥂" : `Next Badge →`}
+        </button>
+
+        {badges.length > 1 && (
+          <div style={{ display: "flex", gap: 6, marginTop: 20 }}>
+            {badges.map((_, i) => (
+              <div key={i} style={{ width: i === idx ? 20 : 8, height: 8, borderRadius: 4,
+                background: i <= idx ? "#fff" : "rgba(255,255,255,.3)", transition: "all .2s" }} />
+            ))}
+          </div>
+        )}
+      </div>
+
+      <style>{`@keyframes badgePop { from{transform:scale(0.3);opacity:0} 70%{transform:scale(1.15)} to{transform:scale(1);opacity:1} }`}</style>
+    </div>
+  );
+}
+
 // ── AUTH SCREENS ─────────────────────────────────────────────────────────────
 function AuthScreen({ onAuth }) {
   const [mode,     setMode]     = useState("login"); // login | register | reset
@@ -2431,6 +2553,86 @@ function clearSession() {
   try { localStorage.removeItem(SESSION_KEY); } catch {}
 }
 
+// ── BADGE COMPUTATION ────────────────────────────────────────────────────────
+function computeBadges(uid, history) {
+  const BADGES = new Set();
+  if (!uid || !history?.length) return [...BADGES];
+  const chResults = [];
+
+  history.forEach(ch => {
+    const player = ch.players?.[uid];
+    if (!player) return;
+    const races = toArr(ch.selectedRaces || []);
+    BADGES.add("first_challenge");
+    const submittedCount = Object.values(ch.players || {}).filter(p => p.picksSubmitted).length;
+    const isQualifying = !!ch.isCanned && submittedCount >= 5;
+    const hasResults = races.some(r => r.resultIn);
+    if (!hasResults) return;
+
+    let chReturn = 0, chStaked = 0;
+    races.forEach(race => {
+      if (!race.resultIn) return;
+      const pick = player.picks?.[race.id];
+      if (!pick?.horseId) return;
+      const horse = race.runners?.find(h => h.id === pick.horseId);
+      if (!horse) return;
+      const isNap = player.napRaceId === race.id;
+      const ret = calcSelectionReturn(horse.sp, pick.betType || "win", horse.position, race.ewTerms, isNap, horse.spDec);
+      chReturn += ret.total;
+      chStaked += ret.staked;
+      if (horse.position === 1 && isQualifying) {
+        const dec = horse.spDec || spToDecimal(horse.sp);
+        if (dec >= 101) BADGES.add("century");
+        else if (dec >= 51) BADGES.add("fifty_to_one");
+        else if (dec >= 21) BADGES.add("twenty_to_one");
+      }
+    });
+    if (chReturn === 0 && chStaked > 0 && isQualifying) BADGES.add("donut");
+
+    if (!isQualifying) {
+      chResults.push({ joinedAt: ch.joinedAt || 0, profit: +(chReturn - chStaked).toFixed(2) });
+      return;
+    }
+
+    const players = Object.values(ch.players || {});
+    const ranked = players.map(p => {
+      let r = 0;
+      races.forEach(race => {
+        if (!race.resultIn) return;
+        const pick = p.picks?.[race.id];
+        if (!pick?.horseId) return;
+        const horse = race.runners?.find(h => h.id === pick.horseId);
+        if (!horse) return;
+        r += calcSelectionReturn(horse.sp, pick.betType || "win", horse.position, race.ewTerms, p.napRaceId === race.id, horse.spDec).total;
+      });
+      return { id: p.id, total: r };
+    }).sort((a, b) => b.total - a.total);
+
+    const myPos = ranked.findIndex(p => p.id === uid) + 1;
+    if (myPos === 1) BADGES.add("winner");
+    if (myPos === 2 || myPos === 3) BADGES.add("podium");
+
+    chResults.push({ joinedAt: ch.joinedAt || 0, profit: +(chReturn - chStaked).toFixed(2) });
+  });
+
+  const total = chResults.length;
+  if (total >= 10) BADGES.add("veteran");
+  if (total >= 25) BADGES.add("seasoned");
+  if (total >= 50) BADGES.add("legend");
+
+  const sorted = [...chResults].sort((a, b) => a.joinedAt - b.joinedAt);
+  let consec = 1, profitConsec = 1;
+  for (let i = 1; i < sorted.length; i++) {
+    const dayGap = (sorted[i].joinedAt - sorted[i-1].joinedAt) / 86400000;
+    consec = dayGap <= 14 ? consec + 1 : 1;
+    profitConsec = (sorted[i].profit > 0 && sorted[i-1].profit > 0) ? profitConsec + 1 : (sorted[i].profit > 0 ? 1 : 0);
+    if (consec >= 3) BADGES.add("hat_trick");
+    if (profitConsec >= 3) BADGES.add("in_the_black");
+  }
+
+  return [...BADGES];
+}
+
 // ── PROFILE SCREEN ───────────────────────────────────────────────────────────
 function ProfileScreen({ authUser, onBack, onRejoin }) {
   const [profile,    setProfile]    = useState(null);
@@ -2476,6 +2678,8 @@ function ProfileScreen({ authUser, onBack, onRejoin }) {
       const player = ch.players?.[uid];
       if (!player) return;
       const races = toArr(ch.selectedRaces || []);
+      // First challenge badge — any challenge counts
+      if (!BADGES.has("first_challenge")) BADGES.add("first_challenge");
       // Only canned challenges with 5+ players who submitted picks count for badges and stats
       const submittedCount = Object.values(ch.players || {}).filter(p => p.picksSubmitted).length;
       const isQualifying = !!ch.isCanned && submittedCount >= 5;
@@ -2555,23 +2759,10 @@ function ProfileScreen({ authUser, onBack, onRejoin }) {
     }
 
     return { entered, won, totalReturn: +totalReturn.toFixed(2), totalStaked: +totalStaked.toFixed(2),
-      bestReturn: +bestReturn.toFixed(2), badges: [...BADGES] };
+      bestReturn: +bestReturn.toFixed(2), badges: computeBadges(uid, history) };
   }, [history, authUser?.uid]);
 
-  const BADGE_DEF = {
-    winner:        { icon: "🏆", label: "Challenge Winner",  desc: "Won a StableMates challenge" },
-    podium:        { icon: "🥈", label: "Podium",            desc: "Finished 2nd or 3rd in a challenge" },
-    donut:         { icon: "🍩", label: "Donut",             desc: "Scored zero in a challenge" },
-    twenty_to_one: { icon: "🎯", label: "20/1 Winner",       desc: "Backed a winner at 20/1 or bigger" },
-    fifty_to_one:  { icon: "🚀", label: "50/1 Winner",       desc: "Backed a winner at 50/1 or bigger" },
-    century:       { icon: "💯", label: "Century",           desc: "Backed a winner at 100/1 or bigger" },
-    veteran:       { icon: "🎪", label: "Veteran",           desc: "Entered 10 challenges" },
-    seasoned:      { icon: "🏟️", label: "Seasoned",          desc: "Entered 25 challenges" },
-    legend:        { icon: "🌟", label: "Legend",            desc: "Entered 50 challenges" },
-    hat_trick:     { icon: "🔥", label: "Hat Trick",         desc: "Entered 3 challenges in a row" },
-    in_the_black:  { icon: "📈", label: "In The Black",      desc: "Turned a profit in 3 challenges in a row" },
-    stable_master: { icon: "🏠", label: "Stable Master",     desc: "Created a Stable" },
-  };
+  // Use global BADGE_DEFS
 
   const pnl = stats ? +(stats.totalReturn - stats.totalStaked).toFixed(2) : 0;
 
@@ -2718,10 +2909,12 @@ function ProfileScreen({ authUser, onBack, onRejoin }) {
                           {ch.day}
                         </div>
                         <div style={{ fontSize: 13, color: C.muted }}>
-                          {ch.isCanned && (() => {
+                          {(() => {
                             const submitted = Object.values(ch.players || {}).filter(p => p.picksSubmitted).length;
-                            return <span style={{ color: submitted >= 5 ? C.pink : C.muted, fontWeight: 600, marginRight: 6 }}>
-                              📺 {submitted >= 5 ? "Official" : `Official (${submitted}/5 picks)`}
+                            const isOfficial = ch.isCanned && submitted >= 5;
+                            const isNotOfficial = !ch.isCanned || submitted < 5;
+                            return <span style={{ color: isOfficial ? C.pink : C.mutedLt, fontWeight: 600, marginRight: 6, fontSize: 11 }}>
+                              {isOfficial ? "📺 Official" : "📋 Not Official"}
                             </span>;
                           })()}
                           Code: <span className="ctx-code">{ch.code}</span>
@@ -2765,7 +2958,7 @@ function ProfileScreen({ authUser, onBack, onRejoin }) {
                 </div>
               ) : (
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-                  {Object.entries(BADGE_DEF)
+                  {Object.entries(BADGE_DEFS)
                     .filter(([key]) => stats?.badges?.includes(key))
                     .map(([key, badge]) => (
                       <div key={key} style={{ background: "#fff", border: `1.5px solid ${C.pink}`,
@@ -2796,6 +2989,7 @@ function ProfileScreen({ authUser, onBack, onRejoin }) {
 export default function App() {
   const [authUser,  setAuthUser]  = useState(undefined); // undefined = loading, null = guest
   const [showProfile, setShowProfile] = useState(false);
+  const [newBadges,   setNewBadges]   = useState([]); // badges to celebrate
   const [screen,    setScreen]  = useState("home");
   const [ch,        setCh]      = useState(null);
   const [pid,       setPid]     = useState(null);
@@ -2820,6 +3014,43 @@ export default function App() {
     });
     return unsub;
   }, []);
+
+  // Check for new badges — call after results or on home screen load
+  async function checkForNewBadges(uid, currentBadges) {
+    if (!uid) return;
+    try {
+      const profile = await userGet(uid);
+      const earnedBefore = new Set(profile?.earnedBadges || []);
+      const newOnes = currentBadges.filter(b => !earnedBefore.has(b));
+      if (newOnes.length) {
+        // Save new badges to profile
+        await userSet(uid, { ...profile, earnedBadges: [...earnedBefore, ...newOnes] });
+        setNewBadges(newOnes);
+      }
+    } catch (e) { console.warn("Badge check error:", e.message); }
+  }
+
+  // Backstop — check for new badges on home screen when logged in
+  useEffect(() => {
+    if (!authUser?.uid || screen !== "home") return;
+    let cancelled = false;
+    async function run() {
+      try {
+        const chalList = await getUserChallenges(authUser.uid);
+        const details = await Promise.all(
+          chalList.slice(0, 20).map(async ({ code, joinedAt }) => {
+            const ch = await dbGet(code);
+            return ch ? { ...ch, joinedAt } : null;
+          })
+        );
+        if (cancelled) return;
+        const badges = computeBadges(authUser.uid, details.filter(Boolean));
+        await checkForNewBadges(authUser.uid, badges);
+      } catch (e) { console.warn("Backstop badge check error:", e.message); }
+    }
+    run();
+    return () => { cancelled = true; };
+  }, [authUser?.uid, screen]);
 
   const isCreator = ch?.creatorId === pid;
 
@@ -2997,6 +3228,14 @@ export default function App() {
     <div style={{ minHeight: "100vh", background: C.bg }}>
       <style>{GLOBAL_CSS}</style>
       <Toast msg={toast} />
+
+      {newBadges.length > 0 && (
+        <BadgeCelebrationModal
+          badges={newBadges}
+          badgeDefs={BADGE_DEFS}
+          onDismiss={() => setNewBadges([])}
+        />
+      )}
 
       <div className="wrap">
         {showCtx && (
