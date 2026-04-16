@@ -4293,13 +4293,11 @@ function HomeHubPanels({ authUser, onProfile, onStables, onSignIn, onSignOut }) 
 
   return (
     <div style={{ marginBottom: 16 }}>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 0 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 0, alignItems: "stretch" }}>
 
         {/* Profile panel */}
-        <div onClick={onProfile} className="card" style={{ cursor: "pointer", padding: "12px 14px",
-          borderColor: C.pink, background: C.pinkBg, display: "flex", flexDirection: "column",
-          alignItems: "center", textAlign: "center", gap: 6 }}>
-          {/* Silk mini */}
+        <div className="card" style={{ padding: "14px 14px", display: "flex", flexDirection: "column",
+          alignItems: "center", textAlign: "center", gap: 6, background: "#fff" }}>
           <svg width="80" height="100" viewBox="-25 0 250 290" style={{ display: "block" }}
             dangerouslySetInnerHTML={{ __html: loaded ? renderSilkSVG(profile?.silks || {...DEFAULT_SILKS, col1:"#F8F8F8", col2:"#F8F8F8", sleeveCol:"#F8F8F8", capCol:"#F8F8F8"}) : "" }} />
           <div style={{ fontFamily: "'DM Serif Display', serif", fontSize: 15, color: C.text,
@@ -4307,16 +4305,18 @@ function HomeHubPanels({ authUser, onProfile, onStables, onSignIn, onSignOut }) 
             {authUser.displayName || "Anonymous"}
           </div>
           {wins > 0 && (
-            <div style={{ fontSize: 12, color: C.pink, fontWeight: 600 }}>
+            <div style={{ fontSize: 12, color: C.muted, fontWeight: 600 }}>
               🏆 {wins} win{wins !== 1 ? "s" : ""}
             </div>
           )}
-          <div style={{ fontSize: 11, color: C.pink, marginTop: 2 }}>View profile →</div>
+          <button onClick={onProfile} className="btn btn-pink btn-sm" style={{ width: "100%", marginTop: "auto" }}>
+            View Profile
+          </button>
         </div>
 
         {/* Stables panel */}
-        <div className="card" style={{ padding: "12px 14px", display: "flex",
-          flexDirection: "column", gap: 8, minHeight: 0 }}>
+        <div className="card" style={{ padding: "14px 14px", display: "flex",
+          flexDirection: "column", gap: 8, background: "#fff" }}>
           <div style={{ fontFamily: "'DM Serif Display', serif", fontSize: 15, color: C.text,
             marginBottom: 2 }}>🏠 Your Stables</div>
           {!loaded ? (
@@ -4324,7 +4324,7 @@ function HomeHubPanels({ authUser, onProfile, onStables, onSignIn, onSignOut }) 
           ) : myStables.length === 0 ? (
             <div style={{ fontSize: 12, color: C.muted, flex: 1 }}>No stables yet</div>
           ) : (
-            <div style={{ flex: 1, overflow: "hidden" }}>
+            <div style={{ flex: 1 }}>
               {myStables.slice(0, 3).map(s => (
                 <div key={s.code} onClick={onStables}
                   style={{ fontSize: 13, fontWeight: 600, color: C.blue, cursor: "pointer",
@@ -4338,16 +4338,10 @@ function HomeHubPanels({ authUser, onProfile, onStables, onSignIn, onSignOut }) 
             </div>
           )}
           <div style={{ display: "flex", gap: 6, marginTop: "auto" }}>
-            <button onClick={onStables}
-              style={{ flex: 1, padding: "5px 0", borderRadius: 7, border: `1.5px solid ${C.border}`,
-                background: "#fff", fontSize: 11, fontWeight: 600, color: C.muted,
-                cursor: "pointer", fontFamily: "inherit" }}>
+            <button onClick={onStables} className="btn btn-pink btn-sm" style={{ flex: 1 }}>
               + Create
             </button>
-            <button onClick={onStables}
-              style={{ flex: 1, padding: "5px 0", borderRadius: 7, border: `1.5px solid ${C.border}`,
-                background: "#fff", fontSize: 11, fontWeight: 600, color: C.muted,
-                cursor: "pointer", fontFamily: "inherit" }}>
+            <button onClick={onStables} className="btn btn-pink btn-sm" style={{ flex: 1 }}>
               🔍 Find
             </button>
           </div>
