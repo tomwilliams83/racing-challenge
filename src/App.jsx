@@ -4224,6 +4224,148 @@ function ProfileScreen({ authUser, onBack, onRejoin }) {
   );
 }
 
+// ── HOME HUB PANELS ──────────────────────────────────────────────────────────
+function HomeHubPanels({ authUser, onProfile, onStables, onSignIn, onSignOut }) {
+  const [profile,    setProfile]    = useState(null);
+  const [myStables,  setMyStables]  = useState([]);
+  const [wins,       setWins]       = useState(0);
+  const [loaded,     setLoaded]     = useState(false);
+
+  useEffect(() => {
+    if (!authUser?.uid) { setLoaded(true); return; }
+    let cancelled = false;
+    async function load() {
+      const prof = await userGet(authUser.uid);
+      const stableList = await getUserStables(authUser.uid);
+      const stableDetails = await Promise.all(stableList.map(({code}) => stableGet(code)));
+
+      // Count wins from challenge history
+      const chalList = await getUserChallenges(authUser.uid);
+      const challenges = await Promise.all(chalList.slice(0,20).map(async ({code,joinedAt}) => {
+        const ch = await dbGet(code);
+        return ch ? {...ch, joinedAt} : null;
+      }));
+      const badges = computeBadges(authUser.uid, challenges.filter(Boolean));
+      const winCount = challenges.filter(Boolean).reduce((acc, ch) => {
+        const races = toArr(ch.selectedRaces || []);
+        if (!races.some(r => r.resultIn)) return acc;
+        const players = Object.values(ch.players || {});
+        const ranked = players.map(p => {
+          let r = 0;
+          races.forEach(race => {
+            if (!race.resultIn) return;
+            const pick = p.picks?.[race.id];
+            if (!pick?.horseId) return;
+            const horse = race.runners?.find(h => h.id === pick.horseId);
+            if (!horse) return;
+            r += calcSelectionReturn(horse.sp, pick.betType||"win", horse.position, race.ewTerms, p.napRaceId===race.id, horse.spDec).total;
+          });
+          return {id: p.id, total: r};
+        }).sort((a,b) => b.total - a.total);
+        return ranked[0]?.id === authUser.uid ? acc + 1 : acc;
+      }, 0);
+
+      if (!cancelled) {
+        setProfile(prof);
+        setMyStables(stableDetails.filter(Boolean));
+        setWins(winCount);
+        setLoaded(true);
+      }
+    }
+    load();
+    return () => { cancelled = true; };
+  }, [authUser?.uid]);
+
+  if (!authUser) {
+    // Guest strip
+    return (
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center",
+        padding: "10px 0", marginBottom: 12, borderBottom: `1px solid ${C.border}` }}>
+        <div style={{ fontSize: 13, color: C.mutedLt }}>Playing as guest</div>
+        <button onClick={onSignIn}
+          style={{ background: "none", border: "none", color: C.blue, fontSize: 13,
+            cursor: "pointer", fontFamily: "inherit", fontWeight: 600 }}>
+          Sign in →
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ marginBottom: 16 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 0 }}>
+
+        {/* Profile panel */}
+        <div onClick={onProfile} className="card" style={{ cursor: "pointer", padding: "12px 14px",
+          borderColor: C.pink, background: C.pinkBg, display: "flex", flexDirection: "column",
+          alignItems: "center", textAlign: "center", gap: 6 }}>
+          {/* Silk mini */}
+          <svg width="80" height="100" viewBox="-25 0 250 290" style={{ display: "block" }}
+            dangerouslySetInnerHTML={{ __html: loaded ? renderSilkSVG(profile?.silks || {...DEFAULT_SILKS, col1:"#F8F8F8", col2:"#F8F8F8", sleeveCol:"#F8F8F8", capCol:"#F8F8F8"}) : "" }} />
+          <div style={{ fontFamily: "'DM Serif Display', serif", fontSize: 15, color: C.text,
+            whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", width: "100%" }}>
+            {authUser.displayName || "Anonymous"}
+          </div>
+          {wins > 0 && (
+            <div style={{ fontSize: 12, color: C.pink, fontWeight: 600 }}>
+              🏆 {wins} win{wins !== 1 ? "s" : ""}
+            </div>
+          )}
+          <div style={{ fontSize: 11, color: C.pink, marginTop: 2 }}>View profile →</div>
+        </div>
+
+        {/* Stables panel */}
+        <div className="card" style={{ padding: "12px 14px", display: "flex",
+          flexDirection: "column", gap: 8, minHeight: 0 }}>
+          <div style={{ fontFamily: "'DM Serif Display', serif", fontSize: 15, color: C.text,
+            marginBottom: 2 }}>🏠 Your Stables</div>
+          {!loaded ? (
+            <div style={{ fontSize: 12, color: C.mutedLt }}>Loading…</div>
+          ) : myStables.length === 0 ? (
+            <div style={{ fontSize: 12, color: C.muted, flex: 1 }}>No stables yet</div>
+          ) : (
+            <div style={{ flex: 1, overflow: "hidden" }}>
+              {myStables.slice(0, 3).map(s => (
+                <div key={s.code} onClick={onStables}
+                  style={{ fontSize: 13, fontWeight: 600, color: C.blue, cursor: "pointer",
+                    padding: "3px 0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                  {s.name}
+                </div>
+              ))}
+              {myStables.length > 3 && (
+                <div style={{ fontSize: 11, color: C.muted }}>+{myStables.length - 3} more</div>
+              )}
+            </div>
+          )}
+          <div style={{ display: "flex", gap: 6, marginTop: "auto" }}>
+            <button onClick={onStables}
+              style={{ flex: 1, padding: "5px 0", borderRadius: 7, border: `1.5px solid ${C.border}`,
+                background: "#fff", fontSize: 11, fontWeight: 600, color: C.muted,
+                cursor: "pointer", fontFamily: "inherit" }}>
+              + Create
+            </button>
+            <button onClick={onStables}
+              style={{ flex: 1, padding: "5px 0", borderRadius: 7, border: `1.5px solid ${C.border}`,
+                background: "#fff", fontSize: 11, fontWeight: 600, color: C.muted,
+                cursor: "pointer", fontFamily: "inherit" }}>
+              🔍 Find
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Sign out link */}
+      <div style={{ textAlign: "right", marginTop: 6 }}>
+        <button onClick={onSignOut}
+          style={{ background: "none", border: "none", color: C.mutedLt, fontSize: 11,
+            cursor: "pointer", fontFamily: "inherit" }}>
+          Sign out
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const [authUser,  setAuthUser]  = useState(undefined); // undefined = loading, null = guest
   const [showProfile, setShowProfile] = useState(false);
@@ -4604,50 +4746,14 @@ export default function App() {
               </div>
             </div>
 
-            {/* Auth status strip */}
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center",
-              padding: "8px 0", marginBottom: 8, borderBottom: `1px solid ${C.border}` }}>
-              {authUser ? (
-                <>
-                  <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-                    <button onClick={() => setShowProfile(true)}
-                      style={{ background: "none", border: "none", cursor: "pointer",
-                        fontFamily: "inherit", textAlign: "left", padding: 0 }}>
-                      <div style={{ fontSize: 13, color: C.muted }}>
-                        👤 <strong style={{ color: C.text }}>{authUser.displayName || authUser.email}</strong>
-                        <span style={{ color: C.blue, marginLeft: 6, fontSize: 12 }}>Profile →</span>
-                      </div>
-                    </button>
-                    <button onClick={() => setShowStables(true)}
-                      style={{ background: "none", border: "none", cursor: "pointer",
-                        fontFamily: "inherit", fontSize: 12, color: C.blue, fontWeight: 600, padding: 0 }}>
-                      🏠 Stables
-                    </button>
-                  </div>
-                  <button onClick={async () => {
-                      await signOut(auth);
-                      sessionStorage.removeItem("sm_guest");
-                      setAuthUser(null);
-                    }}
-                    style={{ background: "none", border: "none", color: C.muted, fontSize: 12,
-                      cursor: "pointer", fontFamily: "inherit" }}>
-                    Sign out
-                  </button>
-                </>
-              ) : (
-                <>
-                  <div style={{ fontSize: 13, color: C.mutedLt }}>Playing as guest</div>
-                  <button onClick={() => {
-                      sessionStorage.removeItem("sm_guest");
-                      setAuthUser(undefined);
-                    }}
-                    style={{ background: "none", border: "none", color: C.blue, fontSize: 12,
-                      cursor: "pointer", fontFamily: "inherit", fontWeight: 600 }}>
-                    Sign in →
-                  </button>
-                </>
-              )}
-            </div>
+            {/* Profile + Stables hub panels */}
+            <HomeHubPanels
+              authUser={authUser}
+              onProfile={() => setShowProfile(true)}
+              onStables={() => setShowStables(true)}
+              onSignIn={() => { sessionStorage.removeItem("sm_guest"); setAuthUser(undefined); }}
+              onSignOut={async () => { await signOut(auth); sessionStorage.removeItem("sm_guest"); setAuthUser(null); }}
+            />
             {/* Welcome back */}
             {session && (
               <div className="card" style={{ marginBottom: 16, textAlign: "center", borderColor: C.blue, background: "#f0f7ff" }}>
