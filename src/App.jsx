@@ -1036,6 +1036,7 @@ function ManageStable({ authUser, stableCode, onBack, onUpdated, showToast, onCr
   const [selMember,    setSelMember]    = useState(null);
   const [yearFilter,   setYearFilter]   = useState("all");
   const [profileNames, setProfileNames] = useState({});
+  const [memberSilks,  setMemberSilks]  = useState({});
 
   useEffect(() => {
     setLoading(true);
@@ -1044,12 +1045,14 @@ function ManageStable({ authUser, stableCode, onBack, onUpdated, showToast, onCr
       if (onUpdated) onUpdated(fresh);
       setLoading(false);
       const members = Object.values(fresh.members || {});
-      const names = {};
+      const names = {}, silksMap = {};
       await Promise.all(members.map(async m => {
         const profile = await userGet(m.uid);
         names[m.uid] = profile?.name || m.name;
+        if (profile?.silks) silksMap[m.uid] = profile.silks;
       }));
       setProfileNames(names);
+      setMemberSilks(silksMap);
     });
     return unsub;
   }, [stableCode]);
@@ -1216,6 +1219,7 @@ function ManageStable({ authUser, stableCode, onBack, onUpdated, showToast, onCr
                 opacity: m.status === "left" ? 0.6 : 1 }}
               onClick={() => m.status === "active" && m.uid !== authUser.uid && setSelMember(m)}>
               <div className="lb-rank" style={{ fontSize: 18 }}>{posEmoji(i, m)}</div>
+              <SilkAvatar silks={memberSilks[m.uid]} size={36} />
               <div style={{ flex: 1 }}>
                 <div style={{ fontSize: 15, fontWeight: 600 }}>
                   {profileNames[m.uid] || m.name}
@@ -1256,14 +1260,17 @@ function ManageStable({ authUser, stableCode, onBack, onUpdated, showToast, onCr
           {activeMembers.map(m => (
             <div key={m.uid} style={{ display: "flex", justifyContent: "space-between", alignItems: "center",
               padding: "12px 0", borderBottom: `1px solid ${C.border}`, opacity: m.status === "left" ? 0.5 : 1 }}>
-              <div>
-                <div style={{ fontWeight: 600, fontSize: 15 }}>
-                  {m.status === "left" ? "👻 " : ""}{profileNames[m.uid] || m.name}
-                  {m.uid === stable.creatorUid ? " 👑" : ""}
-                  {m.uid === authUser.uid ? <span style={{ color: C.muted, fontSize: 13, fontWeight: 400 }}> (you)</span> : ""}
-                </div>
-                <div style={{ fontSize: 12, color: C.muted }}>
-                  {m.status === "left" ? "Left the stable" : `Joined ${new Date(m.joinedAt).toLocaleDateString("en-GB", { month: "short", year: "numeric" })}`}
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <SilkAvatar silks={memberSilks[m.uid]} size={36} />
+                <div>
+                  <div style={{ fontWeight: 600, fontSize: 15 }}>
+                    {m.status === "left" ? "👻 " : ""}{profileNames[m.uid] || m.name}
+                    {m.uid === stable.creatorUid ? " 👑" : ""}
+                    {m.uid === authUser.uid ? <span style={{ color: C.muted, fontSize: 13, fontWeight: 400 }}> (you)</span> : ""}
+                  </div>
+                  <div style={{ fontSize: 12, color: C.muted }}>
+                    {m.status === "left" ? "Left the stable" : `Joined ${new Date(m.joinedAt).toLocaleDateString("en-GB", { month: "short", year: "numeric" })}`}
+                  </div>
                 </div>
               </div>
               {m.uid === authUser.uid && m.uid !== stable.creatorUid && (
@@ -3542,10 +3549,10 @@ const BHA_COLOURS = [
   {name:"Purple",hex:"#6b21a8"},{name:"Grey",hex:"#8a8a8a"},
   {name:"Mauve",hex:"#c084cc"},{name:"Straw",hex:"#e8d5a0"},
 ];
-const SILK_BODY_P  = ["Plain","Hoops","Stripes","Halved","Quartered","Sash","Cross Belts","Check","Spots","Diamonds","Diabolo","Stars","Chevron","Epaulettes","Seams"];
+const SILK_BODY_P  = ["Plain","Star","Hoops","Stripes","Halved","Quartered","Sash","Cross Belts","Check","Spots","Diamonds","Diabolo","Stars","Chevron","Epaulettes","Seams"];
 const SILK_SLEEVE_P = ["Plain","Hooped","Striped","Spots","Stars","Chevron","Armlets","Seams"];
 const SILK_CAP_P   = ["Plain","Quartered","Hooped","Spots","Stars","Peak"];
-const DEFAULT_SILKS = { body:"Plain", sleeve:"Plain", cap:"Plain", col1:"#1a5eb8", col2:"#F8F8F8", capCol:"#1a1a1a" };
+const DEFAULT_SILKS = { body:"Plain", sleeve:"Plain", cap:"Plain", col1:"#F8F8F8", col2:"#F8F8F8", sleeveCol:"#F8F8F8", capCol:"#1a1a1a" };
 
 // SVG path definitions
 const SK = {
@@ -3560,6 +3567,7 @@ const SK = {
 
 function silkBodyPat(c2, bp) {
   switch(bp) {
+    case "Star":     { let pts=""; for(let i=0;i<5;i++){const a=Math.PI*2*i/5-Math.PI/2,b=a+Math.PI/5;pts+=`${97+52*Math.cos(a)},${173+52*Math.sin(a)} ${97+22*Math.cos(b)},${173+22*Math.sin(b)} `;} return `<polygon points="${pts}" fill="${c2}"/>`; }
     case "Hoops":    { let r=""; for(let y=92;y<254;y+=20) r+=`<rect x="25" y="${y}" width="155" height="10" fill="${c2}"/>`; return r; }
     case "Stripes":  { let r=""; for(let x=28;x<172;x+=16) r+=`<rect x="${x}" y="80" width="8" height="180" fill="${c2}"/>`;  return r; }
     case "Halved":   return `<rect x="100" y="80" width="75" height="180" fill="${c2}"/>`;
@@ -3621,6 +3629,8 @@ function renderSilkSVG(silks, size = 200) {
     <clipPath id="helmClip"><path d="${SK.HELM}"/></clipPath>
   </defs>`;
 
+  const sc = s.sleeveCol || c1; // sleeve base colour, defaults to primary
+
   // Body
   o += `<path d="${SK.BODY}" fill="${c1}"/>`;
   o += cl(silkBodyPat(c2, s.body), "bodyClip");
@@ -3628,12 +3638,12 @@ function renderSilkSVG(silks, size = 200) {
   o += `<path d="${SK.BODY}" fill="none" stroke="${INK}" stroke-width="${SW}" stroke-linejoin="round"/>`;
 
   // Left arm
-  o += `<path d="${SK.LARM}" fill="${c1}"/>`;
+  o += `<path d="${SK.LARM}" fill="${sc}"/>`;
   o += cl(silkSleevePat(c2, s.sleeve, "left"), "larmClip");
   o += `<path d="${SK.LARM}" fill="none" stroke="${INK}" stroke-width="${SW}" stroke-linejoin="round"/>`;
 
   // Right arm
-  o += `<path d="${SK.RARM}" fill="${c1}"/>`;
+  o += `<path d="${SK.RARM}" fill="${sc}"/>`;
   o += cl(silkSleevePat(c2, s.sleeve, "right"), "rarmClip");
   o += `<path d="${SK.RARM}" fill="none" stroke="${INK}" stroke-width="${SW}" stroke-linejoin="round"/>`;
 
@@ -3704,7 +3714,7 @@ function SilksDesigner({ authUser, initialSilks, onSave, onBack }) {
 
       {/* Tabs */}
       <div className="tabs" style={{ marginBottom: 16 }}>
-        {[["body","Body"],["sleeve","Sleeves"],["cap","Cap"],["colours","Colours"]].map(([id,label]) => (
+        {[["body","Body"],["sleeve","Sleeves"],["cap","Cap"],["colours","Colours"],["sleevecolour","Sleeve Colour"]].map(([id,label]) => (
           <button key={id} className={`tab${tab===id?" on":""}`} onClick={() => setTab(id)}>{label}</button>
         ))}
       </div>
@@ -3751,6 +3761,25 @@ function SilksDesigner({ authUser, initialSilks, onSave, onBack }) {
               </button>
             ))}
           </div>
+        </div>
+      )}
+
+      {tab === "sleevecolour" && (
+        <div className="fade">
+          <div style={{ fontSize: 13, color: C.muted, marginBottom: 12 }}>
+            Choose a different base colour for the sleeves. Defaults to primary colour if not set.
+          </div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 7, marginBottom: 12 }}>
+            {BHA_COLOURS.map(col => (
+              <div key={col.hex} title={col.name} onClick={() => setSilks(s => ({...s, sleeveCol: col.hex}))}
+                style={{ width: 30, height: 30, borderRadius: "50%", background: col.hex, cursor: "pointer",
+                  border: (silks.sleeveCol||silks.col1) === col.hex ? `3px solid ${C.text}` : col.hex === "#F8F8F8" ? "2px solid #ccc" : "2px solid transparent",
+                  transform: (silks.sleeveCol||silks.col1) === col.hex ? "scale(1.2)" : "scale(1)", transition: "all 0.15s" }} />
+            ))}
+          </div>
+          <button className="btn btn-outline btn-sm" onClick={() => setSilks(s => ({...s, sleeveCol: s.col1}))}>
+            Reset to primary colour
+          </button>
         </div>
       )}
 
@@ -3801,24 +3830,22 @@ function ProfileHeader({ authUser, profile, onDesignSilks }) {
   }
 
   return (
-    <div style={{ marginBottom: 24, padding: 16, background: "#fff",
-      borderRadius: 16, border: `1.5px solid ${C.border}` }}>
+    <div style={{ marginBottom: 24, background: "#fff", borderRadius: 16, border: `1.5px solid ${C.border}`, overflow: "hidden" }}>
       <Toast msg={toast} />
-      <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-        {/* Silk avatar or initial */}
-        <div style={{ flexShrink: 0, cursor: "pointer" }} onClick={onDesignSilks} title="Design your silks">
-          {profile?.silks
-            ? <SilkAvatar silks={profile.silks} size={56} />
-            : <div style={{ width: 56, height: 56, borderRadius: "50%", background: C.pink,
-                display: "flex", alignItems: "center", justifyContent: "center",
-                fontSize: 24, color: "#fff", fontWeight: 700 }}>
-                {(authUser.displayName || authUser.email || "?")[0].toUpperCase()}
-              </div>
-          }
-        </div>
-        <div style={{ flex: 1, minWidth: 0 }}>
+
+      {/* Silk hero — prominent display, tappable to design */}
+      <div onClick={onDesignSilks} style={{ cursor: "pointer", background: C.bg,
+        display: "flex", justifyContent: "center", alignItems: "center",
+        padding: "16px 0 8px", borderBottom: `1px solid ${C.border}` }}>
+        <svg width="160" height="200" viewBox="-25 0 250 290" style={{ display: "block" }}
+          dangerouslySetInnerHTML={{ __html: renderSilkSVG(profile?.silks || { ...DEFAULT_SILKS, col1: "#F8F8F8", col2: "#F8F8F8", sleeveCol: "#F8F8F8", capCol: "#F8F8F8" }) }} />
+      </div>
+
+      {/* Name + email + edit button */}
+      <div style={{ padding: "14px 16px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
           {editing ? (
-            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <div style={{ display: "flex", gap: 8, alignItems: "center", flex: 1 }}>
               <input className="inp" value={name} onChange={e => setName(e.target.value)}
                 style={{ fontSize: 15, padding: "6px 10px", flex: 1 }}
                 onKeyDown={e => e.key === "Enter" && saveName()} autoFocus />
@@ -3828,28 +3855,24 @@ function ProfileHeader({ authUser, profile, onDesignSilks }) {
               <button className="btn btn-outline btn-sm" onClick={() => setEditing(false)}>✕</button>
             </div>
           ) : (
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <div style={{ fontFamily: "'DM Serif Display', serif", fontSize: 20, color: C.text }}>
+            <>
+              <div style={{ fontFamily: "'DM Serif Display', serif", fontSize: 22, color: C.text, flex: 1 }}>
                 {authUser.displayName || "Anonymous"}
               </div>
               <button onClick={() => setEditing(true)}
                 style={{ background: "none", border: "none", color: C.mutedLt, cursor: "pointer",
                   fontSize: 13, padding: 0, lineHeight: 1 }}>✏️</button>
-            </div>
+            </>
           )}
-          <div style={{ fontSize: 13, color: C.muted, marginTop: 2, overflow: "hidden",
-            textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-            {authUser.email}
-          </div>
         </div>
+        <div style={{ fontSize: 13, color: C.muted, marginBottom: 10 }}>{authUser.email}</div>
+        <button onClick={onDesignSilks}
+          style={{ width: "100%", padding: "8px 0", background: "none",
+            border: `1.5px solid ${C.border}`, borderRadius: 10, fontSize: 13,
+            color: C.muted, cursor: "pointer", fontFamily: "inherit", fontWeight: 500 }}>
+          🎨 {profile?.silks ? "Edit silks" : "Design your silks"}
+        </button>
       </div>
-      {/* Design silks button */}
-      <button onClick={onDesignSilks}
-        style={{ width: "100%", marginTop: 12, padding: "8px 0", background: "none",
-          border: `1.5px solid ${C.border}`, borderRadius: 10, fontSize: 13,
-          color: C.muted, cursor: "pointer", fontFamily: "inherit", fontWeight: 500 }}>
-        🎨 {profile?.silks ? "Edit silks" : "Design your silks"}
-      </button>
     </div>
   );
 }
