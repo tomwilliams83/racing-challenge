@@ -1030,18 +1030,26 @@ function CreateStable({ authUser, onCreated, onBack }) {
 }
 
 function ManageStable({ authUser, stableCode, onBack, onUpdated, showToast, onCreateChallenge }) {
-  const [stable,   setStable]   = useState(null);
-  const [tab,      setTab]      = useState("league"); // league | members | pending
-  const [loading,  setLoading]  = useState(true);
-  const [selMember, setSelMember] = useState(null);
-  const [yearFilter, setYearFilter] = useState("all");
+  const [stable,       setStable]       = useState(null);
+  const [tab,          setTab]          = useState("league");
+  const [loading,      setLoading]      = useState(true);
+  const [selMember,    setSelMember]    = useState(null);
+  const [yearFilter,   setYearFilter]   = useState("all");
+  const [profileNames, setProfileNames] = useState({});
 
   useEffect(() => {
     setLoading(true);
-    const unsub = stableListen(stableCode, fresh => {
+    const unsub = stableListen(stableCode, async fresh => {
       setStable(fresh);
       if (onUpdated) onUpdated(fresh);
       setLoading(false);
+      const members = Object.values(fresh.members || {});
+      const names = {};
+      await Promise.all(members.map(async m => {
+        const profile = await userGet(m.uid);
+        names[m.uid] = profile?.name || m.name;
+      }));
+      setProfileNames(names);
     });
     return unsub;
   }, [stableCode]);
