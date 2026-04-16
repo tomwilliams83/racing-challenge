@@ -1210,7 +1210,7 @@ function ManageStable({ authUser, stableCode, onBack, onUpdated, showToast, onCr
               <div className="lb-rank" style={{ fontSize: 18 }}>{posEmoji(i, m)}</div>
               <div style={{ flex: 1 }}>
                 <div style={{ fontSize: 15, fontWeight: 600 }}>
-                  {m.name}
+                  {profileNames[m.uid] || m.name}
                   {m.uid === authUser.uid && <span style={{ color: C.muted, fontSize: 13, fontWeight: 400 }}> (you)</span>}
                   {m.status === "left" && <span style={{ color: C.muted, fontSize: 12 }}> · left</span>}
                 </div>
@@ -1250,7 +1250,7 @@ function ManageStable({ authUser, stableCode, onBack, onUpdated, showToast, onCr
               padding: "12px 0", borderBottom: `1px solid ${C.border}`, opacity: m.status === "left" ? 0.5 : 1 }}>
               <div>
                 <div style={{ fontWeight: 600, fontSize: 15 }}>
-                  {m.status === "left" ? "👻 " : ""}{m.name}
+                  {m.status === "left" ? "👻 " : ""}{profileNames[m.uid] || m.name}
                   {m.uid === stable.creatorUid ? " 👑" : ""}
                   {m.uid === authUser.uid ? <span style={{ color: C.muted, fontSize: 13, fontWeight: 400 }}> (you)</span> : ""}
                 </div>
@@ -2945,10 +2945,23 @@ function NRPanel({ races, onToggle }) {
 }
 
 function ResultsScreen({ challenge, playerId, isCreator, onBack }) {
-  const [ch,         setCh]     = useState(challenge);
-  const [tab,        setTab]    = useState(null);
-  const [err,        setErr]    = useState("");
-  const [toast,      showToast] = useToast();
+  const [ch,          setCh]        = useState(challenge);
+  const [tab,         setTab]       = useState(null);
+  const [err,         setErr]       = useState("");
+  const [toast,       showToast]    = useToast();
+  const [playerSilks, setPlayerSilks] = useState({});
+
+  // Load silks for all players
+  useEffect(() => {
+    const players = Object.values(challenge.players || {});
+    Promise.all(players.map(async p => {
+      const uid = p.uid || p.id;
+      const profile = await userGet(uid);
+      return [uid, profile?.silks || null];
+    })).then(entries => {
+      setPlayerSilks(Object.fromEntries(entries.filter(([,s]) => s)));
+    });
+  }, [challenge.code]);
 
 
   const races   = sortRaces(ch.selectedRaces || []);
@@ -3187,6 +3200,7 @@ function ResultsScreen({ challenge, playerId, isCreator, onBack }) {
         {ranked.map((p, i) => (
           <div key={p.id} className={`lb-row${i === 0 ? " p1" : ""}`}>
             <div className="lb-rank">{i === 0 ? "🏆" : i + 1}</div>
+            <SilkAvatar silks={playerSilks[p.uid || p.id]} size={36} />
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 16, fontWeight: 600 }}>
                 {p.name}{p.id === ch.creatorId ? " 👑" : ""}
@@ -3508,7 +3522,258 @@ function computeBadges(uid, history) {
 }
 
 // ── PROFILE HEADER (with display name editing) ───────────────────────────────
-function ProfileHeader({ authUser }) {
+// ── SILKS ────────────────────────────────────────────────────────────────────
+const BHA_COLOURS = [
+  {name:"White",hex:"#F8F8F8"},{name:"Black",hex:"#1a1a1a"},
+  {name:"Dark Blue",hex:"#0d2d6e"},{name:"Royal Blue",hex:"#1a5eb8"},
+  {name:"Light Blue",hex:"#5ba3d9"},{name:"Dark Green",hex:"#1a5c2a"},
+  {name:"Emerald",hex:"#2ecc71"},{name:"Yellow",hex:"#f9e04b"},
+  {name:"Gold",hex:"#d4a017"},{name:"Orange",hex:"#e8730a"},
+  {name:"Red",hex:"#cc1e1e"},{name:"Maroon",hex:"#6b0f0f"},
+  {name:"Brown",hex:"#7b4a1e"},{name:"Pink",hex:"#ff007f"},
+  {name:"Purple",hex:"#6b21a8"},{name:"Grey",hex:"#8a8a8a"},
+  {name:"Mauve",hex:"#c084cc"},{name:"Straw",hex:"#e8d5a0"},
+];
+const SILK_BODY_P  = ["Plain","Hoops","Stripes","Halved","Quartered","Sash","Cross Belts","Check","Spots","Diamonds","Diabolo","Stars","Chevron","Epaulettes","Seams"];
+const SILK_SLEEVE_P = ["Plain","Hooped","Striped","Spots","Stars","Chevron","Armlets","Seams"];
+const SILK_CAP_P   = ["Plain","Quartered","Hooped","Spots","Stars","Peak"];
+const DEFAULT_SILKS = { body:"Plain", sleeve:"Plain", cap:"Plain", col1:"#1a5eb8", col2:"#F8F8F8", capCol:"#1a1a1a" };
+
+// SVG path definitions
+const SK = {
+  HEAD: "M75,75 Q73,42 100,32 Q127,22 132,48 Q137,68 122,78 Q108,88 88,84 Q75,82 75,75 Z",
+  NECK: "M90,76 L88,92 Q100,98 112,92 L110,76 Q100,82 90,76 Z",
+  BODY: "M52,92 Q36,100 34,122 L30,240 Q30,252 44,254 L156,254 Q170,252 168,240 L162,122 Q160,100 144,92 Q124,84 100,83 Q76,84 52,92 Z",
+  LARM: "M36,94 Q14,96 2,112 L-14,252 Q-16,264 -2,268 L20,272 Q34,274 38,260 L52,116 Q54,102 48,94 Z",
+  RARM: "M160,94 Q182,96 194,112 L210,248 Q214,260 200,264 L178,270 Q164,272 160,258 L144,116 Q142,102 148,94 Z",
+  HELM: "M60,76 Q58,24 100,16 Q142,24 140,76 Q132,90 100,93 Q68,90 60,76 Z",
+  PEAK: "M60,76 Q74,90 100,93 Q126,90 140,76 Q128,86 100,89 Q72,86 60,76 Z",
+};
+
+function silkBodyPat(c2, bp) {
+  switch(bp) {
+    case "Hoops":    { let r=""; for(let y=92;y<254;y+=20) r+=`<rect x="25" y="${y}" width="155" height="10" fill="${c2}"/>`; return r; }
+    case "Stripes":  { let r=""; for(let x=28;x<172;x+=16) r+=`<rect x="${x}" y="80" width="8" height="180" fill="${c2}"/>`;  return r; }
+    case "Halved":   return `<rect x="100" y="80" width="75" height="180" fill="${c2}"/>`;
+    case "Quartered":return `<rect x="100" y="80" width="75" height="87" fill="${c2}"/><rect x="28" y="167" width="72" height="93" fill="${c2}"/>`;
+    case "Sash":     return `<polygon points="34,92 82,92 172,254 124,254" fill="${c2}"/>`;
+    case "Cross Belts": return `<polygon points="34,92 70,92 172,254 136,254" fill="${c2}"/><polygon points="166,92 130,92 30,254 66,254" fill="${c2}"/>`;
+    case "Check":    { let r=""; for(let y=92;y<254;y+=18) for(let x=30;x<170;x+=18) if((Math.floor((y-92)/18)+Math.floor((x-30)/18))%2) r+=`<rect x="${x}" y="${y}" width="18" height="18" fill="${c2}"/>`; return r; }
+    case "Spots":    return [[72,126],[122,126],[97,162],[72,198],[122,198],[97,232]].map(([cx,cy])=>`<circle cx="${cx}" cy="${cy}" r="12" fill="${c2}"/>`).join("");
+    case "Diamonds": return [[97,124],[70,162],[124,162],[97,198],[70,232],[124,232]].map(([cx,cy])=>`<polygon points="${cx},${cy-15} ${cx+13},${cy} ${cx},${cy+15} ${cx-13},${cy}" fill="${c2}"/>`).join("");
+    case "Diabolo":  return `<polygon points="30,92 170,92 97,173" fill="${c2}"/><polygon points="30,254 170,254 97,173" fill="${c2}"/>`;
+    case "Stars":    return [[97,122],[68,164],[126,164],[78,206],[116,206]].map(([cx,cy])=>{let p="";for(let i=0;i<5;i++){const a=Math.PI*2*i/5-Math.PI/2,b=a+Math.PI/5;p+=`${cx+14*Math.cos(a)},${cy+14*Math.sin(a)} ${cx+5.5*Math.cos(b)},${cy+5.5*Math.sin(b)} `;}return`<polygon points="${p}" fill="${c2}"/>`;}).join("");
+    case "Chevron":  return [148,176,204].map(y=>`<polygon points="30,${y-13} 97,${y+9} 170,${y-13} 170,${y} 97,${y+22} 30,${y}" fill="${c2}"/>`).join("");
+    case "Epaulettes": return `<rect x="30" y="92" width="50" height="32" fill="${c2}"/><rect x="118" y="92" width="52" height="32" fill="${c2}"/>`;
+    case "Seams":    return `<line x1="97" y1="92" x2="97" y2="254" stroke="${c2}" stroke-width="5"/><line x1="30" y1="173" x2="170" y2="173" stroke="${c2}" stroke-width="5"/>`;
+    default: return "";
+  }
+}
+
+function silkSleevePat(c2, sp, side) {
+  const L = side === "left";
+  switch(sp) {
+    case "Hooped":  { let r=""; for(let y=94;y<272;y+=22) r+=`<rect x="-20" y="${y}" width="240" height="11" fill="${c2}"/>`; return r; }
+    case "Striped": { let r=""; for(let i=0;i<10;i++) r+=`<rect x="${-20+i*16}" y="0" width="8" height="320" fill="${c2}"/>`; return r; }
+    case "Spots":   return (L?[[18,138],[6,178],[18,218]]:[[178,138],[190,178],[178,218]]).map(([cx,cy])=>`<circle cx="${cx}" cy="${cy}" r="9" fill="${c2}"/>`).join("");
+    case "Stars":   return (L?[[12,145],[8,188]]:[[184,145],[188,188]]).map(([cx,cy])=>{let p="";for(let i=0;i<5;i++){const a=Math.PI*2*i/5-Math.PI/2,b=a+Math.PI/5;p+=`${cx+10*Math.cos(a)},${cy+10*Math.sin(a)} ${cx+4*Math.cos(b)},${cy+4*Math.sin(b)} `;}return`<polygon points="${p}" fill="${c2}"/>`;}).join("");
+    case "Chevron": return [148,176,204].map(y=>L?`<polygon points="-18,${y-10} 40,${y+5} 40,${y+13} -18,${y}" fill="${c2}"/>` : `<polygon points="214,${y-10} 156,${y+5} 156,${y+13} 214,${y}" fill="${c2}"/>`).join("");
+    case "Armlets": return [148,172].map(y=>`<rect x="-20" y="${y}" width="240" height="9" fill="${c2}"/>`).join("");
+    case "Seams":   return L ? `<line x1="24" y1="94" x2="-10" y2="268" stroke="${c2}" stroke-width="4"/>` : `<line x1="172" y1="94" x2="206" y2="264" stroke="${c2}" stroke-width="4"/>`;
+    default: return "";
+  }
+}
+
+function silkHelmetPat(capCol, cp, col1, col2) {
+  const cc2 = capCol === col1 ? col2 : col1;
+  const cl = (html) => `<g clip-path="url(#helmClip)">${html}</g>`;
+  switch(cp) {
+    case "Quartered": return cl(`<rect x="100" y="12" width="48" height="82" fill="${cc2}"/><rect x="52" y="46" width="48" height="48" fill="${cc2}"/>`);
+    case "Hooped":    return cl([24,40,56].map(y=>`<rect x="40" y="${y}" width="122" height="10" fill="${cc2}"/>`).join(""));
+    case "Spots":     return cl([[100,36],[78,58],[122,58],[100,76]].map(([cx,cy])=>`<circle cx="${cx}" cy="${cy}" r="9" fill="${cc2}"/>`).join(""));
+    case "Stars":     return cl([[100,38],[78,62],[122,62]].map(([cx,cy])=>{let p="";for(let i=0;i<5;i++){const a=Math.PI*2*i/5-Math.PI/2,b=a+Math.PI/5;p+=`${cx+10*Math.cos(a)},${cy+10*Math.sin(a)} ${cx+4*Math.cos(b)},${cy+4*Math.sin(b)} `;}return`<polygon points="${p}" fill="${cc2}"/>`;}).join(""));
+    case "Peak":      return cl(`<rect x="64" y="76" width="74" height="15" fill="${cc2}"/>`);
+    default: return "";
+  }
+}
+
+// Render silks as an SVG string — used in preview and leaderboard
+function renderSilkSVG(silks, size = 200) {
+  const s = silks || DEFAULT_SILKS;
+  const c1 = s.col1, c2 = s.col2, cap = s.capCol;
+  const SKIN = "#F2E4D5", INK = "#2a2a2a", SW = 2;
+  const scale = size / 240;
+
+  const cl = (content, id) => `<g clip-path="url(#${id})">${content}</g>`;
+
+  let o = `<defs>
+    <clipPath id="bodyClip"><path d="${SK.BODY}"/></clipPath>
+    <clipPath id="larmClip"><path d="${SK.LARM}"/></clipPath>
+    <clipPath id="rarmClip"><path d="${SK.RARM}"/></clipPath>
+    <clipPath id="helmClip"><path d="${SK.HELM}"/></clipPath>
+  </defs>`;
+
+  // Body
+  o += `<path d="${SK.BODY}" fill="${c1}"/>`;
+  o += cl(silkBodyPat(c2, s.body), "bodyClip");
+  [116,144,172,200].forEach(y => o += `<circle cx="96" cy="${y}" r="3.5" fill="${INK}" opacity="0.3"/>`);
+  o += `<path d="${SK.BODY}" fill="none" stroke="${INK}" stroke-width="${SW}" stroke-linejoin="round"/>`;
+
+  // Left arm
+  o += `<path d="${SK.LARM}" fill="${c1}"/>`;
+  o += cl(silkSleevePat(c2, s.sleeve, "left"), "larmClip");
+  o += `<path d="${SK.LARM}" fill="none" stroke="${INK}" stroke-width="${SW}" stroke-linejoin="round"/>`;
+
+  // Right arm
+  o += `<path d="${SK.RARM}" fill="${c1}"/>`;
+  o += cl(silkSleevePat(c2, s.sleeve, "right"), "rarmClip");
+  o += `<path d="${SK.RARM}" fill="none" stroke="${INK}" stroke-width="${SW}" stroke-linejoin="round"/>`;
+
+  // Neck + head
+  o += `<path d="${SK.NECK}" fill="${SKIN}" stroke="${INK}" stroke-width="1.5"/>`;
+  o += `<path d="${SK.HEAD}" fill="${SKIN}" stroke="${INK}" stroke-width="${SW}" stroke-linejoin="round"/>`;
+
+  // Helmet
+  o += `<path d="${SK.HELM}" fill="${cap}"/>`;
+  o += silkHelmetPat(cap, s.cap, c1, c2);
+  o += `<path d="${SK.HELM}" fill="none" stroke="${INK}" stroke-width="${SW}" stroke-linejoin="round"/>`;
+  o += `<path d="${SK.PEAK}" fill="${cap}" stroke="${INK}" stroke-width="${SW}"/>`;
+  o += `<circle cx="100" cy="17" r="5" fill="${cap}" stroke="${INK}" stroke-width="1.5"/>`;
+  o += `<circle cx="100" cy="17" r="2" fill="${INK}" opacity="0.35"/>`;
+  o += `<line x1="100" y1="17" x2="100" y2="90" stroke="${INK}" stroke-width="1" opacity="0.18"/>`;
+  o += `<path d="M63,60 Q100,66 137,60" fill="none" stroke="#ffffff80" stroke-width="5"/>`;
+  o += `<path d="M63,60 Q100,66 137,60" fill="none" stroke="${INK}" stroke-width="1" opacity="0.25"/>`;
+  o += `<path d="M70,80 Q70,96 100,99 Q130,96 130,80" fill="none" stroke="${INK}" stroke-width="2" stroke-linecap="round"/>`;
+
+  return o;
+}
+
+// Small silk avatar for leaderboard/stable — just renders an inline SVG
+function SilkAvatar({ silks, size = 40 }) {
+  const svgContent = renderSilkSVG(silks || DEFAULT_SILKS);
+  return (
+    <svg width={size} height={size} viewBox="-25 0 250 300"
+      style={{ flexShrink: 0 }}
+      dangerouslySetInnerHTML={{ __html: svgContent }} />
+  );
+}
+
+// Full silks designer component
+function SilksDesigner({ authUser, initialSilks, onSave, onBack }) {
+  const [silks, setSilks] = useState(initialSilks || DEFAULT_SILKS);
+  const [saving, setSaving] = useState(false);
+  const [toast, showToast] = useToast();
+  const [tab, setTab] = useState("body"); // body | sleeve | cap | colours
+
+  async function handleSave() {
+    setSaving(true);
+    try {
+      const profile = await userGet(authUser.uid);
+      await userSet(authUser.uid, { ...profile, silks });
+      showToast("Silks saved! 🎨");
+      setTimeout(() => onSave(silks), 800);
+    } catch(e) { showToast("Failed to save"); }
+    setSaving(false);
+  }
+
+  const svgContent = renderSilkSVG(silks);
+  const colName = hex => BHA_COLOURS.find(c => c.hex === hex)?.name || "";
+  const desc = [colName(silks.col1), silks.body !== "Plain" ? silks.body.toLowerCase() : null, silks.sleeve !== "Plain" ? `${silks.sleeve.toLowerCase()} sleeves` : null, `${colName(silks.capCol)}${silks.cap !== "Plain" ? " " + silks.cap.toLowerCase() : ""} cap`].filter(Boolean).join(", ");
+
+  return (
+    <div style={{ paddingTop: 16 }} className="fade">
+      <Toast msg={toast} />
+      <button className="btn btn-outline btn-sm" style={{ marginBottom: 16 }} onClick={onBack}>← Back</button>
+      <div className="eyebrow">Your Silks</div>
+      <div className="sec-title" style={{ marginBottom: 16 }}>Design Your Silks</div>
+
+      {/* Preview */}
+      <div style={{ textAlign: "center", marginBottom: 20 }}>
+        <svg width="200" height="260" viewBox="-25 0 250 290" style={{ display: "block", margin: "0 auto" }}
+          dangerouslySetInnerHTML={{ __html: svgContent }} />
+        <div style={{ fontSize: 12, color: C.muted, marginTop: 6 }}>{desc}</div>
+      </div>
+
+      {/* Tabs */}
+      <div className="tabs" style={{ marginBottom: 16 }}>
+        {[["body","Body"],["sleeve","Sleeves"],["cap","Cap"],["colours","Colours"]].map(([id,label]) => (
+          <button key={id} className={`tab${tab===id?" on":""}`} onClick={() => setTab(id)}>{label}</button>
+        ))}
+      </div>
+
+      {tab === "body" && (
+        <div className="fade">
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+            {SILK_BODY_P.map(p => (
+              <button key={p} onClick={() => setSilks(s => ({...s, body: p}))}
+                style={{ padding: "7px 12px", borderRadius: 8, border: `1.5px solid ${silks.body===p ? C.blue : C.border}`,
+                  background: silks.body===p ? C.blueBg : "#fff", color: silks.body===p ? C.blue : C.text,
+                  fontFamily: "inherit", fontSize: 13, fontWeight: silks.body===p ? 600 : 400, cursor: "pointer" }}>
+                {p}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {tab === "sleeve" && (
+        <div className="fade">
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+            {SILK_SLEEVE_P.map(p => (
+              <button key={p} onClick={() => setSilks(s => ({...s, sleeve: p}))}
+                style={{ padding: "7px 12px", borderRadius: 8, border: `1.5px solid ${silks.sleeve===p ? C.blue : C.border}`,
+                  background: silks.sleeve===p ? C.blueBg : "#fff", color: silks.sleeve===p ? C.blue : C.text,
+                  fontFamily: "inherit", fontSize: 13, fontWeight: silks.sleeve===p ? 600 : 400, cursor: "pointer" }}>
+                {p}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {tab === "cap" && (
+        <div className="fade">
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+            {SILK_CAP_P.map(p => (
+              <button key={p} onClick={() => setSilks(s => ({...s, cap: p}))}
+                style={{ padding: "7px 12px", borderRadius: 8, border: `1.5px solid ${silks.cap===p ? C.blue : C.border}`,
+                  background: silks.cap===p ? C.blueBg : "#fff", color: silks.cap===p ? C.blue : C.text,
+                  fontFamily: "inherit", fontSize: 13, fontWeight: silks.cap===p ? 600 : 400, cursor: "pointer" }}>
+                {p}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {tab === "colours" && (
+        <div className="fade">
+          {[["Primary colour", "col1"], ["Secondary colour", "col2"], ["Cap colour", "capCol"]].map(([label, key]) => (
+            <div key={key} style={{ marginBottom: 16 }}>
+              <div style={{ fontSize: 11, letterSpacing: 2, color: C.muted, fontWeight: 600,
+                textTransform: "uppercase", marginBottom: 8 }}>{label}</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 7 }}>
+                {BHA_COLOURS.map(col => (
+                  <div key={col.hex} title={col.name} onClick={() => setSilks(s => ({...s, [key]: col.hex}))}
+                    style={{ width: 30, height: 30, borderRadius: "50%", background: col.hex, cursor: "pointer",
+                      border: silks[key] === col.hex ? `3px solid ${C.text}` : col.hex === "#F8F8F8" ? "2px solid #ccc" : "2px solid transparent",
+                      transform: silks[key] === col.hex ? "scale(1.2)" : "scale(1)", transition: "all 0.15s" }} />
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <button className="btn btn-pink" style={{ width: "100%", marginTop: 24 }}
+        disabled={saving} onClick={handleSave}>
+        {saving ? "Saving…" : "Save Silks 🎨"}
+      </button>
+    </div>
+  );
+}
+
+function ProfileHeader({ authUser, profile, onDesignSilks }) {
   const [editing, setEditing] = useState(false);
   const [name,    setName]    = useState(authUser?.displayName || "");
   const [saving,  setSaving]  = useState(false);
@@ -3519,9 +3784,8 @@ function ProfileHeader({ authUser }) {
     setSaving(true);
     try {
       await updateProfile(authUser, { displayName: name.trim() });
-      // Also update in Firebase users collection
-      const profile = await userGet(authUser.uid);
-      if (profile) await userSet(authUser.uid, { ...profile, name: name.trim() });
+      const p = await userGet(authUser.uid);
+      if (p) await userSet(authUser.uid, { ...p, name: name.trim() });
       showToast("Name updated ✅");
       setEditing(false);
     } catch (e) { showToast("Failed to update name"); }
@@ -3529,43 +3793,55 @@ function ProfileHeader({ authUser }) {
   }
 
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 24,
-      padding: 16, background: "#fff", borderRadius: 16, border: `1.5px solid ${C.border}` }}>
+    <div style={{ marginBottom: 24, padding: 16, background: "#fff",
+      borderRadius: 16, border: `1.5px solid ${C.border}` }}>
       <Toast msg={toast} />
-      <div style={{ width: 56, height: 56, borderRadius: "50%", background: C.pink,
-        display: "flex", alignItems: "center", justifyContent: "center",
-        fontSize: 24, color: "#fff", fontWeight: 700, flexShrink: 0 }}>
-        {(authUser.displayName || authUser.email || "?")[0].toUpperCase()}
-      </div>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        {editing ? (
-          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            <input className="inp" value={name} onChange={e => setName(e.target.value)}
-              style={{ fontSize: 15, padding: "6px 10px", flex: 1 }}
-              onKeyDown={e => e.key === "Enter" && saveName()}
-              autoFocus />
-            <button className="btn btn-pink btn-sm" disabled={saving} onClick={saveName}>
-              {saving ? "…" : "Save"}
-            </button>
-            <button className="btn btn-outline btn-sm" onClick={() => setEditing(false)}>✕</button>
-          </div>
-        ) : (
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <div style={{ fontFamily: "'DM Serif Display', serif", fontSize: 20, color: C.text }}>
-              {authUser.displayName || "Anonymous"}
+      <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+        {/* Silk avatar or initial */}
+        <div style={{ flexShrink: 0, cursor: "pointer" }} onClick={onDesignSilks} title="Design your silks">
+          {profile?.silks
+            ? <SilkAvatar silks={profile.silks} size={56} />
+            : <div style={{ width: 56, height: 56, borderRadius: "50%", background: C.pink,
+                display: "flex", alignItems: "center", justifyContent: "center",
+                fontSize: 24, color: "#fff", fontWeight: 700 }}>
+                {(authUser.displayName || authUser.email || "?")[0].toUpperCase()}
+              </div>
+          }
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          {editing ? (
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <input className="inp" value={name} onChange={e => setName(e.target.value)}
+                style={{ fontSize: 15, padding: "6px 10px", flex: 1 }}
+                onKeyDown={e => e.key === "Enter" && saveName()} autoFocus />
+              <button className="btn btn-pink btn-sm" disabled={saving} onClick={saveName}>
+                {saving ? "…" : "Save"}
+              </button>
+              <button className="btn btn-outline btn-sm" onClick={() => setEditing(false)}>✕</button>
             </div>
-            <button onClick={() => setEditing(true)}
-              style={{ background: "none", border: "none", color: C.mutedLt, cursor: "pointer",
-                fontSize: 13, padding: 0, lineHeight: 1 }}>
-              ✏️
-            </button>
+          ) : (
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <div style={{ fontFamily: "'DM Serif Display', serif", fontSize: 20, color: C.text }}>
+                {authUser.displayName || "Anonymous"}
+              </div>
+              <button onClick={() => setEditing(true)}
+                style={{ background: "none", border: "none", color: C.mutedLt, cursor: "pointer",
+                  fontSize: 13, padding: 0, lineHeight: 1 }}>✏️</button>
+            </div>
+          )}
+          <div style={{ fontSize: 13, color: C.muted, marginTop: 2, overflow: "hidden",
+            textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {authUser.email}
           </div>
-        )}
-        <div style={{ fontSize: 13, color: C.muted, marginTop: 2, overflow: "hidden",
-          textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-          {authUser.email}
         </div>
       </div>
+      {/* Design silks button */}
+      <button onClick={onDesignSilks}
+        style={{ width: "100%", marginTop: 12, padding: "8px 0", background: "none",
+          border: `1.5px solid ${C.border}`, borderRadius: 10, fontSize: 13,
+          color: C.muted, cursor: "pointer", fontFamily: "inherit", fontWeight: 500 }}>
+        🎨 {profile?.silks ? "Edit silks" : "Design your silks"}
+      </button>
     </div>
   );
 }
@@ -3576,6 +3852,7 @@ function ProfileScreen({ authUser, onBack, onRejoin }) {
   const [history,    setHistory]    = useState([]);
   const [loading,    setLoading]    = useState(true);
   const [activeTab,  setActiveTab]  = useState("stats"); // stats | history | badges
+  const [showSilks,  setShowSilks]  = useState(false);
 
   useEffect(() => {
     if (!authUser?.uid) return;
@@ -3703,12 +3980,21 @@ function ProfileScreen({ authUser, onBack, onRejoin }) {
 
   const pnl = stats ? +(stats.totalReturn - stats.totalStaked).toFixed(2) : 0;
 
+  if (showSilks) return (
+    <SilksDesigner
+      authUser={authUser}
+      initialSilks={profile?.silks}
+      onSave={silks => { setProfile(p => ({...p, silks})); setShowSilks(false); }}
+      onBack={() => setShowSilks(false)}
+    />
+  );
+
   return (
     <div style={{ paddingTop: 16 }} className="fade">
       <button className="btn btn-outline btn-sm" style={{ marginBottom: 16 }} onClick={onBack}>← Back</button>
 
       {/* Header */}
-      <ProfileHeader authUser={authUser} />
+      <ProfileHeader authUser={authUser} profile={profile} onDesignSilks={() => setShowSilks(true)} />
 
       {/* Tabs */}
       <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
