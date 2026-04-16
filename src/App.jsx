@@ -4293,60 +4293,49 @@ function HomeHubPanels({ authUser, onProfile, onStables, onSignIn, onSignOut }) 
 
   return (
     <div style={{ marginBottom: 16 }}>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 0, alignItems: "stretch" }}>
+      <div className="home-grid">
 
         {/* Profile panel */}
         <div className="card" style={{ padding: "14px", display: "flex", flexDirection: "column",
-          alignItems: "center", textAlign: "center", background: "#fff",
-          justifyContent: "space-between", minHeight: 220 }}>
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4, flex: 1 }}>
-            <svg width="76" height="92" viewBox="-25 0 250 290" style={{ display: "block", flexShrink: 0 }}
-              dangerouslySetInnerHTML={{ __html: loaded ? renderSilkSVG(profile?.silks || {...DEFAULT_SILKS, col1:"#F8F8F8", col2:"#F8F8F8", sleeveCol:"#F8F8F8", capCol:"#F8F8F8"}) : "" }} />
-            <div style={{ fontFamily: "'DM Serif Display', serif", fontSize: 14, color: C.text,
-              whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", width: "100%" }}>
-              {authUser.displayName || "Anonymous"}
-            </div>
-            {wins > 0 && (
-              <div style={{ fontSize: 12, color: C.muted, fontWeight: 600 }}>
-                🏆 {wins} win{wins !== 1 ? "s" : ""}
-              </div>
-            )}
+          alignItems: "center", textAlign: "center", background: "#fff" }}>
+          <div className="eyebrow">Your Profile</div>
+          <svg width="64" height="78" viewBox="-25 0 250 290" style={{ display: "block", margin: "8px auto 6px", flexShrink: 0 }}
+            dangerouslySetInnerHTML={{ __html: loaded ? renderSilkSVG(profile?.silks || {...DEFAULT_SILKS, col1:"#F8F8F8", col2:"#F8F8F8", sleeveCol:"#F8F8F8", capCol:"#F8F8F8"}) : "" }} />
+          <div style={{ fontFamily: "'DM Serif Display', serif", fontSize: 16, color: C.text, marginBottom: 4,
+            whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", width: "100%" }}>
+            {authUser.displayName || "Anonymous"}
           </div>
-          <button onClick={onProfile} className="btn btn-pink btn-sm" style={{ width: "100%", marginTop: 10 }}>
+          {wins > 0 && (
+            <div style={{ fontSize: 13, color: C.muted, fontWeight: 600, marginBottom: 4 }}>
+              🏆 {wins} win{wins !== 1 ? "s" : ""}
+            </div>
+          )}
+          <button onClick={onProfile} className="btn btn-pink" style={{ width: "100%", marginTop: "auto" }}>
             View Profile
           </button>
         </div>
 
         {/* Stables panel */}
-        <div className="card" style={{ padding: "14px", display: "flex", flexDirection: "column",
-          background: "#fff", justifyContent: "space-between", minHeight: 220 }}>
-          <div>
-            <div style={{ fontFamily: "'DM Serif Display', serif", fontSize: 14, color: C.text,
-              marginBottom: 8 }}>🏠 Your Stables</div>
-            {!loaded ? (
-              <div style={{ fontSize: 12, color: C.mutedLt }}>Loading…</div>
-            ) : myStables.length === 0 ? (
-              <div style={{ fontSize: 12, color: C.muted }}>No stables yet</div>
-            ) : (
-              <div>
-                {myStables.slice(0, 3).map(s => (
-                  <div key={s.code} onClick={onStables}
-                    style={{ fontSize: 13, fontWeight: 600, color: C.blue, cursor: "pointer",
-                      padding: "3px 0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                    {s.name}
-                  </div>
-                ))}
-                {myStables.length > 3 && (
-                  <div style={{ fontSize: 11, color: C.muted }}>+{myStables.length - 3} more</div>
-                )}
+        <div className="card" style={{ padding: "14px", display: "flex", flexDirection: "column", background: "#fff" }}>
+          <div className="eyebrow">Your Stables</div>
+          <div style={{ fontFamily: "'DM Serif Display', serif", fontSize: 16, color: C.text, marginBottom: 10, marginTop: 4 }}>
+            {!loaded ? "Loading…" : myStables.length === 0 ? "No stables yet" : myStables.slice(0, 3).map(s => (
+              <div key={s.code} onClick={onStables}
+                style={{ fontSize: 14, fontWeight: 600, color: C.blue, cursor: "pointer",
+                  padding: "2px 0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+                  fontFamily: "'DM Sans', sans-serif" }}>
+                {s.name}
               </div>
+            ))}
+            {loaded && myStables.length > 3 && (
+              <div style={{ fontSize: 11, color: C.muted }}>+{myStables.length - 3} more</div>
             )}
           </div>
-          <div style={{ display: "flex", gap: 6, marginTop: 10 }}>
-            <button onClick={onStables} className="btn btn-pink btn-sm" style={{ flex: 1 }}>
+          <div style={{ display: "flex", gap: 8, marginTop: "auto" }}>
+            <button onClick={onStables} className="btn btn-pink" style={{ flex: 1 }}>
               + Create
             </button>
-            <button onClick={onStables} className="btn btn-pink btn-sm" style={{ flex: 1 }}>
+            <button onClick={onStables} className="btn btn-pink" style={{ flex: 1 }}>
               🔍 Find
             </button>
           </div>
