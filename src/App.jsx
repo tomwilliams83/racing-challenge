@@ -4318,14 +4318,15 @@ function HomeHubPanels({ authUser, onProfile, onStables, onSignIn, onSignOut }) 
         {/* Stables panel */}
         <div className="card" style={{ padding: "14px", display: "flex", flexDirection: "column", background: "#fff" }}>
           <div className="eyebrow">Your Stables</div>
-          <div style={{ fontFamily: "'DM Serif Display', serif", fontSize: 16, color: C.text, marginBottom: 10, marginTop: 4 }}>
-            {!loaded ? "Loading…" : myStables.length === 0 ? "No stables yet" : myStables.slice(0, 3).map(s => (
-              <div key={s.code} onClick={onStables}
-                style={{ fontSize: 14, fontWeight: 600, color: C.blue, cursor: "pointer",
-                  padding: "2px 0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
-                  fontFamily: "'DM Sans', sans-serif" }}>
+          <div style={{ marginBottom: 10, marginTop: 4, flex: 1 }}>
+            {!loaded ? <div style={{ fontSize: 12, color: C.mutedLt }}>Loading…</div>
+            : myStables.length === 0 ? <div style={{ fontSize: 13, color: C.muted }}>No stables yet</div>
+            : myStables.slice(0, 3).map(s => (
+              <button key={s.code} onClick={onStables} className="btn btn-blue"
+                style={{ width: "100%", marginBottom: 6, fontSize: 13, padding: "8px 12px",
+                  whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                 {s.name}
-              </div>
+              </button>
             ))}
             {loaded && myStables.length > 3 && (
               <div style={{ fontSize: 11, color: C.muted }}>+{myStables.length - 3} more</div>
