@@ -2049,8 +2049,11 @@ function HomeScreen({ onCreate, onJoin, openAbout, authUser }) {
     <div className="fade">
       <div className="home-grid" style={{ alignItems: "stretch" }}>
         <div className="card card-pink" style={{ display: "flex", flexDirection: "column" }}>
-          <div className="eyebrow">Start a new game</div>
-          <div className="sec-title" style={{ fontSize: 20, marginBottom: 14 }}>Create</div>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div className="eyebrow" style={{ marginBottom: 0 }}>Start a new game</div>
+            <img src="/icons/logo-transparent.png" alt="" style={{ width: 28, height: 28, opacity: 0.18, flexShrink: 0 }} />
+          </div>
+          <div className="sec-title" style={{ fontSize: 20, marginBottom: 14, marginTop: 6 }}>Create</div>
           <div className="field" style={{ flex: 1 }}>
             <label>Your name</label>
             <input className="inp" placeholder="e.g. Paddy" value={createName} onChange={e => setCreateName(e.target.value)}
@@ -2062,8 +2065,11 @@ function HomeScreen({ onCreate, onJoin, openAbout, authUser }) {
         </div>
 
         <div className="card card-blue" style={{ display: "flex", flexDirection: "column" }}>
-          <div className="eyebrow">Join a friend's game</div>
-          <div className="sec-title" style={{ fontSize: 20, marginBottom: 14 }}>Join</div>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div className="eyebrow" style={{ marginBottom: 0 }}>Join a friend's game</div>
+            <img src="/icons/logo-transparent.png" alt="" style={{ width: 28, height: 28, opacity: 0.18, flexShrink: 0 }} />
+          </div>
+          <div className="sec-title" style={{ fontSize: 20, marginBottom: 14, marginTop: 6 }}>Join</div>
           <div className="field">
             <label>Your name</label>
             <input className="inp" placeholder="e.g. Seamus" value={joinName} onChange={e => setJoinName(e.target.value)} />
@@ -4316,6 +4322,80 @@ function ProfileScreen({ authUser, onBack, onRejoin }) {
   );
 }
 
+// ── WELCOME BACK CARD ─────────────────────────────────────────────────────────
+function WelcomeBackCard({ session, onRejoin, onDismiss }) {
+  const [status, setStatus] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      try {
+        const ch = await dbGet(session.code);
+        if (!ch || cancelled) return;
+        const races = sortRaces(ch.selectedRaces || []);
+        const player = ch.players?.[session.playerId];
+        const now = new Date();
+        const firstRace = races[0];
+        const firstOff = firstRace ? raceTimeToDate(firstRace.time, ch.day || "today") : null;
+        const started = firstOff && firstOff <= now;
+        const hasPicks = player?.picksSubmitted;
+
+        if (!started) {
+          if (!hasPicks) {
+            setStatus({ emoji: "⏰", msg: "Get your picks in before the first race!", tone: "pink" });
+          } else {
+            setStatus({ emoji: "✅", msg: "Picks locked in — good luck!", tone: "blue" });
+          }
+        } else {
+          const players = Object.values(ch.players || {});
+          const scored = players.map(p => {
+            let total = 0;
+            races.forEach(r => {
+              if (!r.resultIn) return;
+              const pick = p.picks?.[r.id];
+              if (!pick?.horseId) return;
+              const horse = r.runners?.find(h => h.id === pick.horseId);
+              if (!horse) return;
+              total += calcSelectionReturn(horse.sp, pick.betType || "win", horse.position, r.ewTerms, p.napRaceId === r.id, horse.spDec).total;
+            });
+            return { id: p.id, total };
+          }).sort((a, b) => b.total - a.total);
+          const pos = scored.findIndex(p => p.id === session.playerId) + 1;
+          const total = scored.length;
+          const posStr = pos === 1 ? "1st 🏆" : pos === 2 ? "2nd 🥈" : pos === 3 ? "3rd 🥉" : `${pos}th`;
+          const allDone = races.length > 0 && races.every(r => r.resultIn);
+          if (allDone) {
+            setStatus({ emoji: pos === 1 ? "🏆" : "🏁", msg: `Challenge over — you finished ${posStr} of ${total}`, tone: "blue" });
+          } else {
+            setStatus({ emoji: "🏇", msg: `You're in ${posStr} of ${total} — race day is live!`, tone: pos <= 3 ? "pink" : "blue" });
+          }
+        }
+      } catch(e) {
+        setStatus({ emoji: "👋", msg: "Tap to rejoin your challenge", tone: "blue" });
+      }
+    }
+    load();
+    return () => { cancelled = true; };
+  }, [session.code]);
+
+  const tone   = status?.tone === "pink" ? C.pink : C.blue;
+  const bg     = status?.tone === "pink" ? C.pinkBg : "#f0f7ff";
+  const border = status?.tone === "pink" ? C.pink : C.blue;
+
+  return (
+    <div className="card" style={{ marginBottom: 16, textAlign: "center", borderColor: border, background: bg }}>
+      <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 4 }}>
+        👋 Welcome back, {session.playerName}!
+      </div>
+      <div style={{ fontSize: 14, color: status ? tone : C.muted, fontWeight: status ? 600 : 400, marginBottom: 14 }}>
+        {status ? `${status.emoji} ${status.msg}` : "Loading your challenge…"}
+      </div>
+      <button className="btn btn-blue" onClick={onRejoin}>Rejoin Challenge →</button>
+      <button className="btn btn-outline btn-sm" style={{ marginLeft: 10 }} onClick={onDismiss}>Not me</button>
+    </div>
+  );
+}
+
 // ── HOME HUB PANELS ──────────────────────────────────────────────────────────
 function HomeHubPanels({ authUser, onProfile, onStables, onStable, onSignIn, onSignOut }) {
   const [profile,    setProfile]    = useState(null);
@@ -4390,7 +4470,10 @@ function HomeHubPanels({ authUser, onProfile, onStables, onStable, onSignIn, onS
         {/* Profile panel */}
         <div className="card" style={{ padding: "14px", display: "flex", flexDirection: "column",
           alignItems: "center", textAlign: "center", background: "#fff" }}>
-          <div className="eyebrow">Your Profile</div>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%" }}>
+            <div className="eyebrow" style={{ marginBottom: 0 }}>Your Profile</div>
+            <img src="/icons/logo-transparent.png" alt="" style={{ width: 28, height: 28, opacity: 0.18, flexShrink: 0 }} />
+          </div>
           <svg width="64" height="78" viewBox="-25 0 250 290" style={{ display: "block", margin: "8px auto 6px", flexShrink: 0 }}
             dangerouslySetInnerHTML={{ __html: loaded ? renderSilkSVG(profile?.silks || {...DEFAULT_SILKS, col1:"#F8F8F8", col2:"#F8F8F8", sleeveCol:"#F8F8F8", capCol:"#F8F8F8"}) : "" }} />
           <div style={{ fontFamily: "'DM Serif Display', serif", fontSize: 16, color: C.text, marginBottom: 4,
@@ -4409,8 +4492,11 @@ function HomeHubPanels({ authUser, onProfile, onStables, onStable, onSignIn, onS
 
         {/* Stables panel */}
         <div className="card" style={{ padding: "14px", display: "flex", flexDirection: "column", background: "#fff" }}>
-          <div className="eyebrow">Your Stables</div>
-          <div style={{ marginBottom: 10, marginTop: 4, flex: 1 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%", marginBottom: 4 }}>
+            <div className="eyebrow" style={{ marginBottom: 0 }}>Your Stables</div>
+            <img src="/icons/logo-transparent.png" alt="" style={{ width: 28, height: 28, opacity: 0.18, flexShrink: 0 }} />
+          </div>
+          <div style={{ marginBottom: 10, marginTop: 0, flex: 1 }}>
             {!loaded ? <div style={{ fontSize: 12, color: C.mutedLt }}>Loading…</div>
             : myStables.length === 0 ? <div style={{ fontSize: 13, color: C.muted }}>No stables yet</div>
             : myStables.slice(0, 3).map(s => (
@@ -4842,7 +4928,13 @@ export default function App() {
             <div style={{ textAlign: "center", padding: "28px 0 20px" }}>
               <img src="/icons/logo-transparent.png" alt="StableMates" onClick={() => setShowAbout(true)}
                 style={{ width: "min(60vw, 240px)", height: "min(60vw, 240px)", display: "inline-block", cursor: "pointer" }} />
-              <div style={{ marginTop: 8 }}>
+              <div style={{ marginTop: 6, marginBottom: 2 }}>
+                <div style={{ fontFamily: "'DM Serif Display', serif", fontSize: 17,
+                  color: C.text, letterSpacing: "0.01em", fontStyle: "italic" }}>
+                  Pick nags, win brags
+                </div>
+              </div>
+              <div style={{ marginTop: 6 }}>
                 <button onClick={() => setShowAbout(true)}
                   style={{ background: "none", border: "none", color: C.muted, fontSize: 13,
                     cursor: "pointer", fontFamily: "inherit", textDecoration: "underline" }}>
@@ -4853,18 +4945,11 @@ export default function App() {
 
             {/* Welcome back */}
             {session && (
-              <div className="card" style={{ marginBottom: 16, textAlign: "center", borderColor: C.blue, background: "#f0f7ff" }}>
-                <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 4 }}>👋 Welcome back, {session.playerName}!</div>
-                <div style={{ fontSize: 13, color: C.muted, marginBottom: 14 }}>
-                  You were in challenge <span className="ctx-code">{session.code}</span>
-                </div>
-                <button className="btn btn-blue" onClick={() => rejoinChallenge(session.code, session.playerId)}>
-                  Rejoin Challenge →
-                </button>
-                <button className="btn btn-outline btn-sm" style={{ marginLeft: 10 }} onClick={() => { clearSession(); setSession(null); }}>
-                  Not me
-                </button>
-              </div>
+              <WelcomeBackCard
+                session={session}
+                onRejoin={() => rejoinChallenge(session.code, session.playerId)}
+                onDismiss={() => { clearSession(); setSession(null); }}
+              />
             )}
 
             {/* Profile + Stables hub panels */}
