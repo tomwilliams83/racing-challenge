@@ -857,10 +857,10 @@ function OnboardingModal({ onDone }) {
 }
 
 // ── STABLES SCREEN ───────────────────────────────────────────────────────────
-function StablesScreen({ authUser, onBack, onCreateChallenge }) {
-  const [view,        setView]        = useState("list");   // list | create | manage | member
+function StablesScreen({ authUser, onBack, onCreateChallenge, directStableCode }) {
+  const [view,        setView]        = useState(directStableCode ? "manage" : "list");
   const [myStables,   setMyStables]   = useState([]);
-  const [activeStable, setActiveStable] = useState(null);
+  const [activeStable, setActiveStable] = useState(directStableCode ? { code: directStableCode } : null);
   const [loading,     setLoading]     = useState(true);
   const [toast,       showToast]      = useToast();
 
@@ -2240,7 +2240,19 @@ function SetupScreen({ challenge, onSave, onBack }) {
   function loadITVCard() {
     if (!itvCard?.raceIds?.length) return;
     const itvSet = new Set(itvCard.raceIds);
-    setSelected(new Set(racecards.filter(r => itvSet.has(r.id)).map(r => r.id)));
+    // Try direct ID match first, then fall back to course+time match
+    let matched = racecards.filter(r => itvSet.has(r.id));
+    if (matched.length === 0 && itvCard.raceMeta?.length) {
+      // Match by course+time if IDs differ (e.g. tomorrow card loaded today)
+      matched = racecards.filter(r =>
+        itvCard.raceMeta.some(m => m.course === r.course && m.time === r.time)
+      );
+    }
+    if (!matched.length) {
+      showToast("No matching races found — check the day selected");
+      return;
+    }
+    setSelected(new Set(matched.map(r => r.id)));
     setUsedItvCard(true);
     showToast(`${itvCard.label || "ITV Card"} loaded ✅`);
   }
@@ -2261,42 +2273,122 @@ function SetupScreen({ challenge, onSave, onBack }) {
     setTimeout(() => onSave(updated), 600);
   }
 
+  const [mode, setMode] = useState(null); // null=choose, "main"=main challenge, "custom"=pick your own
+
+  // If no ITV card available, go straight to custom
+  const effectiveMode = !itvCard?.raceIds?.length ? "custom" : mode;
+
+  async function startMainChallenge() {
+    setMode("main");
+    setLoading(true); setError("");
+    try {
+      const data = await apiGet(`/api/racecards?day=${day}`);
+      const parsed = parseRacecards(data);
+      setRacecards(parsed);
+      if (!parsed.length) { setError("No races found for this day."); setLoading(false); return; }
+      // Auto-select ITV card races
+      const itvSet = new Set(itvCard.raceIds);
+      let matched = parsed.filter(r => itvSet.has(r.id));
+      if (!matched.length && itvCard.raceMeta?.length) {
+        matched = parsed.filter(r => itvCard.raceMeta.some(m => m.course === r.course && m.time === r.time));
+      }
+      if (matched.length) {
+        setSelected(new Set(matched.map(r => r.id)));
+        setUsedItvCard(true);
+      } else {
+        setError("Couldn't match the main card races — please use 'Pick Your Own'");
+        setMode(null);
+      }
+    } catch(e) { setError(e.message); }
+    setLoading(false);
+  }
+
   return (
     <div style={{ paddingTop: 24 }} className="fade">
       <Toast msg={toast} />
       <button className="btn btn-outline btn-sm" style={{ marginBottom: 18 }} onClick={onBack}>← Back</button>
       <div className="eyebrow">Challenge Setup</div>
-      <div className="sec-title">Choose Your Races</div>
+      <div className="sec-title">Set Up Your Challenge</div>
 
+      {/* Day selector — always visible */}
       <div className="card" style={{ marginBottom: 14 }}>
-        <div className="field" style={{ marginBottom: 14 }}>
+        <div className="field" style={{ marginBottom: 0 }}>
           <label>Race day</label>
           <div className="day-toggle">
-            <button className={`day-btn${day === "today" ? " active" : ""}`} onClick={() => setDay("today")}>Today</button>
-            <button className={`day-btn${day === "tomorrow" ? " active" : ""}`} onClick={() => setDay("tomorrow")}>Tomorrow</button>
+            <button className={`day-btn${day === "today" ? " active" : ""}`} onClick={() => { setDay("today"); setMode(null); setRacecards([]); setSelected(new Set()); }}>Today</button>
+            <button className={`day-btn${day === "tomorrow" ? " active" : ""}`} onClick={() => { setDay("tomorrow"); setMode(null); setRacecards([]); setSelected(new Set()); }}>Tomorrow</button>
           </div>
         </div>
-        <button className="btn btn-blue" onClick={load} disabled={loading} style={{ width: "100%" }}>
-          {loading ? "Loading…" : "Load Races"}
-        </button>
-        {itvCard?.raceIds?.length > 0 && racecards.length > 0 && (
-          <div style={{ marginTop: 10 }}>
-            <button className="btn btn-pink" onClick={loadITVCard} style={{ width: "100%" }}>
-              📺 Load {itvCard.label || "ITV Card"}
-            </button>
-            <div style={{ fontSize: 12, color: C.muted, marginTop: 6, textAlign: "center" }}>
-              Pre-selects this week's ITV featured races
-            </div>
-          </div>
-        )}
-        {error && <div className="err" style={{ marginTop: 12 }}>{error}</div>}
       </div>
 
-      {loading && <Loader />}
-
-      {racecards.length > 0 && (
-        <CourseAccordion racecards={racecards} selected={selected} toggle={toggle} onSave={save} />
+      {/* Mode chooser — shown when ITV card available and no mode chosen */}
+      {!effectiveMode && (
+        <div className="fade">
+          {itvCard?.label && (
+            <div style={{ fontSize: 13, color: C.muted, textAlign: "center", marginBottom: 12 }}>
+              📺 <strong style={{ color: C.text }}>{itvCard.label}</strong> is set as the main challenge
+            </div>
+          )}
+          <button className="btn btn-pink" style={{ width: "100%", marginBottom: 10, padding: "16px" }}
+            onClick={startMainChallenge}>
+            📺 Main Challenge
+          </button>
+          <div style={{ fontSize: 12, color: C.muted, textAlign: "center", marginBottom: 16 }}>
+            Uses the pre-selected featured race card
+          </div>
+          <button className="btn btn-outline" style={{ width: "100%" }}
+            onClick={() => setMode("custom")}>
+            Pick Your Own Races
+          </button>
+        </div>
       )}
+
+      {/* Custom race picker */}
+      {effectiveMode === "custom" && (
+        <div className="fade">
+          <div className="card" style={{ marginBottom: 14 }}>
+            <button className="btn btn-blue" onClick={load} disabled={loading} style={{ width: "100%" }}>
+              {loading ? "Loading…" : "Load Races"}
+            </button>
+            {error && <div className="err" style={{ marginTop: 12 }}>{error}</div>}
+          </div>
+          {loading && <Loader />}
+          {racecards.length > 0 && (
+            <CourseAccordion racecards={racecards} selected={selected} toggle={toggle} onSave={save} />
+          )}
+        </div>
+      )}
+
+      {/* Main challenge — auto-selected, just confirm */}
+      {effectiveMode === "main" && !loading && racecards.length > 0 && selected.size > 0 && (
+        <div className="fade">
+          {error && <div className="err" style={{ marginBottom: 12 }}>{error}</div>}
+          <div className="card" style={{ marginBottom: 14, borderColor: C.pink, background: C.pinkBg }}>
+            <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 8 }}>📺 {itvCard?.label || "Main Challenge"}</div>
+            <div style={{ fontSize: 13, color: C.muted, marginBottom: 12 }}>
+              {selected.size} race{selected.size !== 1 ? "s" : ""} selected
+            </div>
+            {[...selected].map(id => {
+              const r = racecards.find(rc => rc.id === id);
+              return r ? (
+                <div key={id} style={{ fontSize: 13, padding: "4px 0", borderTop: `1px solid ${C.border}` }}>
+                  <span className="time-badge">{r.time}</span>{r.course}
+                </div>
+              ) : null;
+            })}
+          </div>
+          <div style={{ display: "flex", gap: 10 }}>
+            <button className="btn btn-outline" style={{ flex: 1 }} onClick={() => { setMode(null); setRacecards([]); setSelected(new Set()); }}>
+              ← Back
+            </button>
+            <button className="btn btn-pink" style={{ flex: 2 }} onClick={save}>
+              Save Challenge →
+            </button>
+          </div>
+        </div>
+      )}
+
+      {loading && <Loader />}
     </div>
   );
 }
@@ -4225,7 +4317,7 @@ function ProfileScreen({ authUser, onBack, onRejoin }) {
 }
 
 // ── HOME HUB PANELS ──────────────────────────────────────────────────────────
-function HomeHubPanels({ authUser, onProfile, onStables, onSignIn, onSignOut }) {
+function HomeHubPanels({ authUser, onProfile, onStables, onStable, onSignIn, onSignOut }) {
   const [profile,    setProfile]    = useState(null);
   const [myStables,  setMyStables]  = useState([]);
   const [wins,       setWins]       = useState(0);
@@ -4322,8 +4414,8 @@ function HomeHubPanels({ authUser, onProfile, onStables, onSignIn, onSignOut }) 
             {!loaded ? <div style={{ fontSize: 12, color: C.mutedLt }}>Loading…</div>
             : myStables.length === 0 ? <div style={{ fontSize: 13, color: C.muted }}>No stables yet</div>
             : myStables.slice(0, 3).map(s => (
-              <button key={s.code} onClick={onStables} className="btn btn-blue"
-                style={{ width: "100%", marginBottom: 6, fontSize: 13, padding: "8px 12px",
+              <button key={s.code} onClick={() => onStable && onStable(s.code)} className="btn btn-blue"
+                style={{ width: "100%", marginBottom: 6, fontSize: 13, padding: "12px 12px",
                   whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                 {s.name}
               </button>
@@ -4359,6 +4451,7 @@ export default function App() {
   const [authUser,  setAuthUser]  = useState(undefined); // undefined = loading, null = guest
   const [showProfile, setShowProfile] = useState(false);
   const [showStables, setShowStables] = useState(false);
+  const [directStableCode, setDirectStableCode] = useState(null);
   const [newBadges,   setNewBadges]   = useState([]); // badges to celebrate
   const [stableNotifs, setStableNotifs] = useState([]); // pending stable challenges
   const [screen,    setScreen]  = useState("home");
@@ -4514,8 +4607,31 @@ export default function App() {
         }
       } catch (e) { console.warn("App NR check error:", e.message); }
     };
+
+    // Also check if challenge is locked and remove non-pickers
+    const removeNonPickers = async () => {
+      if (cancelled) return;
+      try {
+        const fresh = await dbGet(ch.code);
+        if (!fresh || !isChallengeLocked(fresh)) return;
+        const players = Object.values(fresh.players || {});
+        const nonPickers = players.filter(p => !p.picksSubmitted);
+        if (!nonPickers.length) return;
+        let changed = false;
+        nonPickers.forEach(p => {
+          delete fresh.players[p.id];
+          changed = true;
+        });
+        if (changed) {
+          await dbSet(fresh.code, fresh);
+          if (!cancelled) setCh(normaliseChallenge(fresh));
+        }
+      } catch (e) { console.warn("Non-picker removal error:", e.message); }
+    };
+
     checkNRs();
-    const interval = setInterval(checkNRs, 3 * 60 * 1000);
+    removeNonPickers();
+    const interval = setInterval(() => { checkNRs(); removeNonPickers(); }, 3 * 60 * 1000);
     return () => { cancelled = true; clearInterval(interval); };
   }, [ch?.code]);
 
@@ -4756,6 +4872,7 @@ export default function App() {
               authUser={authUser}
               onProfile={() => setShowProfile(true)}
               onStables={() => setShowStables(true)}
+              onStable={code => { setDirectStableCode(code); setShowStables(true); }}
               onSignIn={() => { sessionStorage.removeItem("sm_guest"); setAuthUser(undefined); }}
               onSignOut={async () => { await signOut(auth); sessionStorage.removeItem("sm_guest"); setAuthUser(null); }}
             />
@@ -4799,7 +4916,7 @@ export default function App() {
           </>
         )}
         {showStables && authUser ? (
-          <StablesScreen authUser={authUser} onBack={() => setShowStables(false)}
+          <StablesScreen authUser={authUser} directStableCode={directStableCode} onBack={() => { setShowStables(false); setDirectStableCode(null); }}
             onCreateChallenge={async (stableCode) => {
               // Create challenge linked to this specific stable only
               const playerId = authUser.uid;
