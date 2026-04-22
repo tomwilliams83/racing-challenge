@@ -4694,30 +4694,8 @@ export default function App() {
       } catch (e) { console.warn("App NR check error:", e.message); }
     };
 
-    // Also check if challenge is locked and remove non-pickers
-    const removeNonPickers = async () => {
-      if (cancelled) return;
-      try {
-        const fresh = await dbGet(ch.code);
-        if (!fresh || !isChallengeLocked(fresh)) return;
-        const players = Object.values(fresh.players || {});
-        const nonPickers = players.filter(p => !p.picksSubmitted);
-        if (!nonPickers.length) return;
-        let changed = false;
-        nonPickers.forEach(p => {
-          delete fresh.players[p.id];
-          changed = true;
-        });
-        if (changed) {
-          await dbSet(fresh.code, fresh);
-          if (!cancelled) setCh(normaliseChallenge(fresh));
-        }
-      } catch (e) { console.warn("Non-picker removal error:", e.message); }
-    };
-
     checkNRs();
-    removeNonPickers();
-    const interval = setInterval(() => { checkNRs(); removeNonPickers(); }, 3 * 60 * 1000);
+    const interval = setInterval(checkNRs, 3 * 60 * 1000);
     return () => { cancelled = true; clearInterval(interval); };
   }, [ch?.code]);
 
