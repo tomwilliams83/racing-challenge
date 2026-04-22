@@ -1089,6 +1089,20 @@ function ManageStable({ authUser, stableCode, onBack, onUpdated, showToast, onCr
     onBack();
   }
 
+  async function deleteStable() {
+    if (!confirm(`Delete ${stable?.name}? This cannot be undone — all members will lose access.`)) return;
+    if (!confirm(`Are you sure? "${stable?.name}" will be permanently deleted.`)) return;
+    try {
+      // Remove from all members' userStables
+      const members = Object.values(stable.members || {});
+      await Promise.all(members.map(m => removeUserStable(m.uid, stableCode)));
+      // Delete the stable itself
+      await set(ref(db, `stables/${stableCode}`), null);
+      showToast("Stable deleted");
+      onBack();
+    } catch(e) { showToast("Failed to delete stable"); }
+  }
+
   async function copyInviteLink() {
     try { await navigator.clipboard.writeText(stable?.code || stableCode); } catch {}
     showToast("Stable code copied! 🔗");
@@ -1133,7 +1147,16 @@ function ManageStable({ authUser, stableCode, onBack, onUpdated, showToast, onCr
 
   return (
     <div style={{ paddingTop: 16 }} className="fade">
-      <button className="btn btn-outline btn-sm" style={{ marginBottom: 16 }} onClick={onBack}>← Back</button>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+        <button className="btn btn-outline btn-sm" onClick={onBack}>← Back</button>
+        {isCreator && (
+          <button onClick={deleteStable}
+            style={{ background: "none", border: "none", color: C.danger, fontSize: 13,
+              cursor: "pointer", fontFamily: "inherit", fontWeight: 500 }}>
+            Delete stable
+          </button>
+        )}
+      </div>
 
       {/* Header */}
       <div style={{ marginBottom: 20 }}>
