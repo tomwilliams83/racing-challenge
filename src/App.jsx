@@ -5048,15 +5048,23 @@ export default function App() {
       const stable = await stableGet(sc);
       if (!stable) continue;
       const openChs = Object.values(stable.challenges || {});
+      let warned = false;
       for (const existingRef of openChs) {
+        if (warned) break;
         const existingCh = await dbGet(existingRef.code);
         if (!existingCh) continue;
         const races = sortRaces(existingCh.selectedRaces || []);
         const allDone = races.length > 0 && races.every(r => r.resultIn);
-        if (!allDone && existingCh.status !== "complete") {
-          const proceed = confirm(`"${stable.name}" already has an open challenge (${existingRef.code}). Create a new one anyway?`);
-          if (!proceed) { setRejoining(false); return; }
+        if (allDone || existingCh.status === "complete") continue;
+        // Skip dead challenges — no picks and first race already gone off
+        const anyPicks = Object.values(existingCh.players || {}).some(p => p.picksSubmitted);
+        if (!anyPicks && races.length) {
+          const firstOff = raceTimeToDate(races[0].time, existingCh.day || "today");
+          if (firstOff < new Date()) continue;
         }
+        const proceed = confirm(`"${stable.name}" already has an open challenge (${existingRef.code}). Create a new one anyway?`);
+        if (!proceed) { setRejoining(false); return; }
+        warned = true;
       }
     }
 
@@ -5339,17 +5347,25 @@ export default function App() {
 
               const stable = await stableGet(stableCode);
               if (stable) {
-                // Check for existing open challenge
+                // Check for existing genuinely open challenge
                 const openChs = Object.values(stable.challenges || {});
+                let warned = false;
                 for (const chRef of openChs) {
+                  if (warned) break;
                   const existingCh = await dbGet(chRef.code);
                   if (!existingCh) continue;
                   const races = sortRaces(existingCh.selectedRaces || []);
                   const allDone = races.length > 0 && races.every(r => r.resultIn);
-                  if (!allDone && existingCh.status !== "complete") {
-                    const proceed = confirm(`"${stable.name}" already has an open challenge. Create a new one anyway?`);
-                    if (!proceed) return;
+                  if (allDone || existingCh.status === "complete") continue;
+                  // Skip dead challenges — no picks and first race already gone off
+                  const anyPicks = Object.values(existingCh.players || {}).some(p => p.picksSubmitted);
+                  if (!anyPicks && races.length) {
+                    const firstOff = raceTimeToDate(races[0].time, existingCh.day || "today");
+                    if (firstOff < new Date()) continue;
                   }
+                  const proceed = confirm(`"${stable.name}" already has an open challenge. Create a new one anyway?`);
+                  if (!proceed) return;
+                  warned = true;
                 }
               }
 
