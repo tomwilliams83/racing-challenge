@@ -1029,6 +1029,80 @@ function CreateStable({ authUser, onCreated, onBack }) {
   );
 }
 
+// Shows the open/live challenge for a stable directly on the stable screen
+function ActiveStableChallenge({ stable, authUser, onCreateChallenge }) {
+  const [liveChallenge, setLiveChallenge] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      const chs = Object.values(stable.challenges || {});
+      for (const ref of chs) {
+        const ch = await dbGet(ref.code);
+        if (!ch || cancelled) continue;
+        const races = sortRaces(ch.selectedRaces || []);
+        const allDone = races.length > 0 && races.every(r => r.resultIn);
+        if (!allDone && ch.status !== "complete") {
+          if (!cancelled) setLiveChallenge(normaliseChallenge(ch));
+          break;
+        }
+      }
+      if (!cancelled) setLoading(false);
+    }
+    load();
+    return () => { cancelled = true; };
+  }, [stable.code]);
+
+  if (loading) return null;
+
+  if (!liveChallenge) return (
+    <div className="card" style={{ marginBottom: 16, textAlign: "center",
+      borderStyle: "dashed", borderColor: C.border }}>
+      <div style={{ fontSize: 13, color: C.muted, marginBottom: 10 }}>No active challenge</div>
+      <button className="btn btn-pink btn-sm" onClick={onCreateChallenge}>
+        + Create Challenge
+      </button>
+    </div>
+  );
+
+  const races = sortRaces(liveChallenge.selectedRaces || []);
+  const locked = isChallengeLocked(liveChallenge);
+  const players = Object.values(liveChallenge.players || {});
+  const submitted = players.filter(p => p.picksSubmitted).length;
+  const myPlayer = liveChallenge.players?.[authUser?.uid];
+
+  return (
+    <div className="card" style={{ marginBottom: 16, borderColor: C.pink, background: C.pinkBg }}>
+      <div style={{ fontSize: 11, letterSpacing: 2, color: C.pink, fontWeight: 600,
+        textTransform: "uppercase", marginBottom: 6 }}>
+        {locked ? "🏇 Live Challenge" : "📋 Open Challenge"}
+        {liveChallenge.isCanned ? " · 📺 Official" : ""}
+      </div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+        <div style={{ fontFamily: "'DM Serif Display', serif", fontSize: 18, color: C.text }}>
+          {races.length ? `${races.length} race${races.length !== 1 ? "s" : ""}` : "Setting up…"}
+        </div>
+        <div style={{ fontSize: 12, color: C.muted }}>
+          {submitted}/{players.length} picks in
+        </div>
+      </div>
+      <div style={{ fontSize: 12, color: C.muted, marginBottom: 10, fontFamily: "monospace" }}>
+        Code: {liveChallenge.code}
+      </div>
+      {myPlayer ? (
+        <div style={{ fontSize: 13, color: C.muted, marginBottom: 10 }}>
+          {myPlayer.picksSubmitted ? "✅ Your picks are in" : locked ? "⏳ Locked" : "⏰ Picks needed"}
+        </div>
+      ) : null}
+      <button className="btn btn-pink btn-sm" style={{ width: "100%" }}
+        onClick={() => onCreateChallenge(liveChallenge.code)}>
+        Enter Challenge →
+      </button>
+    </div>
+  );
+}
+
 function ManageStable({ authUser, stableCode, onBack, onUpdated, showToast, onCreateChallenge }) {
   const [stable,       setStable]       = useState(null);
   const [tab,          setTab]          = useState("league");
@@ -1066,6 +1140,22 @@ function ManageStable({ authUser, stableCode, onBack, onUpdated, showToast, onCr
     delete fresh.pendingRequests[uid];
     await stableSet(stableCode, fresh);
     await addUserStable(uid, stableCode, fresh.name);
+
+    // Auto-join any open challenge on this stable
+    const openChs = Object.values(fresh.challenges || {});
+    for (const chRef of openChs) {
+      const ch = await dbGet(chRef.code);
+      if (!ch) continue;
+      const races = sortRaces(ch.selectedRaces || []);
+      const allDone = races.length > 0 && races.every(r => r.resultIn);
+      if (allDone || ch.status === "complete") continue;
+      if (isChallengeLocked(ch)) continue; // don't add after lock
+      if (ch.players?.[uid]) continue; // already in
+      ch.players[uid] = { id: uid, name: req.name, picks: {}, picksSubmitted: false, uid };
+      await dbSet(chRef.code, ch);
+      await addChallengeToUserIndex(uid, chRef.code);
+    }
+
     showToast(`${req.name} approved ✅`);
   }
 
@@ -1211,6 +1301,9 @@ function ManageStable({ authUser, stableCode, onBack, onUpdated, showToast, onCr
           ))}
         </div>
       )}
+
+      {/* Active challenge card */}
+      <ActiveStableChallenge stable={stable} authUser={authUser} onCreateChallenge={onCreateChallenge} />
 
       {/* Tabs */}
       <div className="tabs" style={{ marginBottom: 16 }}>
@@ -3299,15 +3392,46 @@ function ResultsScreen({ challenge, playerId, isCreator, onBack }) {
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 10, marginBottom: 22 }}>
         <div>
           <button className="btn btn-outline btn-sm" style={{ marginBottom: 10 }} onClick={onBack}>← Back</button>
-          <div className="eyebrow">Results</div>
+          <div className="eyebrow">
+            Results
+            {ch.stableCode && <span style={{ marginLeft: 8, color: C.blue }}>· 🏠 Stable Challenge</span>}
+            {ch.isCanned && <span style={{ marginLeft: 8, color: C.pink }}>· 📺 Official</span>}
+          </div>
           <div className="sec-title" style={{ marginBottom: 0 }}>{races.length} races · 2pts per race</div>
         </div>
-        {pendingCount > 0 && (
-          <div style={{ fontSize: 12, color: C.muted, fontWeight: 500, marginTop: 4 }}>
-            <span className="live-dot" />Checking results every 60s…
-          </div>
-        )}
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 8 }}>
+          {pendingCount > 0 && (
+            <div style={{ fontSize: 12, color: C.muted, fontWeight: 500, marginTop: 4 }}>
+              <span className="live-dot" />Checking results every 60s…
+            </div>
+          )}
+          {ch.status === "open" && isCreator && (
+            <button className="btn btn-pink btn-sm" onClick={async () => {
+              const updated = { ...ch, status: "selections" };
+              await dbSet(ch.code, updated);
+              setCh(normaliseChallenge(updated));
+            }}>
+              Open Selections →
+            </button>
+          )}
+        </div>
       </div>
+
+      {/* Pre-selections waiting state */}
+      {ch.status === "open" && (
+        <div className="card" style={{ marginBottom: 16, textAlign: "center", borderColor: C.blue, background: "#f0f7ff" }}>
+          <div style={{ fontSize: 32, marginBottom: 8 }}>🎟️</div>
+          <div style={{ fontFamily: "'DM Serif Display', serif", fontSize: 18, color: C.text, marginBottom: 4 }}>
+            Waiting for selections to open
+          </div>
+          <div style={{ fontSize: 13, color: C.muted, marginBottom: 12 }}>
+            Share code <span style={{ fontFamily: "monospace", fontWeight: 700, color: C.pink }}>{ch.code}</span> with friends to invite them
+          </div>
+          <button className="btn btn-outline btn-sm" onClick={() => {
+            navigator.clipboard?.writeText(ch.code).catch(() => {});
+          }}>Copy Code</button>
+        </div>
+      )}
 
       {err && <div className="err" style={{ marginBottom: 14 }}>{err}</div>}
 
@@ -4345,6 +4469,89 @@ function ProfileScreen({ authUser, onBack, onRejoin }) {
   );
 }
 
+// ── ACTIVE CHALLENGES LIST ────────────────────────────────────────────────────
+function ActiveChallengesList({ challenges, loading, uid, onEnter }) {
+  if (loading) return (
+    <div className="card" style={{ marginBottom: 16, textAlign: "center", padding: "14px" }}>
+      <div style={{ fontSize: 13, color: C.mutedLt }}>Loading your challenges…</div>
+    </div>
+  );
+  if (!challenges.length) return null;
+
+  return (
+    <div style={{ marginBottom: 16 }}>
+      <div style={{ fontSize: 11, letterSpacing: 2, color: C.muted, fontWeight: 600,
+        textTransform: "uppercase", marginBottom: 8 }}>Your Active Challenges</div>
+      {challenges.map(ch => {
+        const player = ch.players?.[uid];
+        const races = sortRaces(ch.selectedRaces || []);
+        const allDone = races.length > 0 && races.every(r => r.resultIn);
+        const locked = isChallengeLocked(ch);
+        const hasPicks = player?.picksSubmitted;
+        const players = Object.values(ch.players || {});
+
+        // Work out position if locked and results coming in
+        let posText = null;
+        if (locked && races.some(r => r.resultIn)) {
+          const scored = players.map(p => {
+            let total = 0;
+            races.forEach(r => {
+              if (!r.resultIn) return;
+              const pick = p.picks?.[r.id];
+              if (!pick?.horseId) return;
+              const horse = r.runners?.find(h => h.id === pick.horseId);
+              if (!horse) return;
+              total += calcSelectionReturn(horse.sp, pick.betType || "win", horse.position, r.ewTerms, p.napRaceId === r.id, horse.spDec).total;
+            });
+            return { id: p.id, total };
+          }).sort((a, b) => b.total - a.total);
+          const pos = scored.findIndex(p => p.id === uid) + 1;
+          const total = scored.length;
+          posText = pos === 1 ? `🏆 1st of ${total}` : pos === 2 ? `🥈 2nd of ${total}` : pos === 3 ? `🥉 3rd of ${total}` : `${pos}th of ${total}`;
+        }
+
+        let status, tone;
+        if (allDone) {
+          status = `${posText || "Complete"} — tap to see results`;
+          tone = C.blue;
+        } else if (!locked) {
+          status = hasPicks ? "✅ Picks in — waiting for race day" : "⏰ Get your picks in!";
+          tone = hasPicks ? C.blue : C.pink;
+        } else {
+          status = posText ? `🏇 ${posText} — live` : hasPicks ? "🏇 Race day — live!" : "⏳ Locked";
+          tone = posText && posText.startsWith("🏆") ? C.pink : C.blue;
+        }
+
+        const border = tone === C.pink ? C.pink : C.border;
+        const bg = tone === C.pink ? C.pinkBg : "#fff";
+
+        return (
+          <div key={ch.code} onClick={() => onEnter(ch)} className="card"
+            style={{ marginBottom: 10, cursor: "pointer", borderColor: border, background: bg }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
+              <div>
+                <div style={{ fontSize: 11, color: C.muted, fontWeight: 600, letterSpacing: 1,
+                  textTransform: "uppercase", marginBottom: 2 }}>
+                  {ch.stableCode ? `🏠 Stable Challenge` : "Challenge"}
+                  {ch.isCanned ? " · 📺 Official" : ""}
+                </div>
+                <div style={{ fontFamily: "'DM Serif Display', serif", fontSize: 18, color: C.text }}>
+                  {races.length ? `${races.length} race${races.length !== 1 ? "s" : ""}` : "Setting up…"}
+                  <span style={{ fontSize: 13, color: C.muted, fontWeight: 400, marginLeft: 8 }}>
+                    {players.length} player{players.length !== 1 ? "s" : ""}
+                  </span>
+                </div>
+              </div>
+              <div style={{ fontSize: 11, color: C.mutedLt, fontFamily: "monospace" }}>{ch.code}</div>
+            </div>
+            <div style={{ fontSize: 13, color: tone, fontWeight: 600 }}>{status}</div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 // ── WELCOME BACK CARD ─────────────────────────────────────────────────────────
 function WelcomeBackCard({ session, onRejoin, onDismiss }) {
   const [status, setStatus] = useState(null);
@@ -4569,11 +4776,39 @@ export default function App() {
   const [player,    setPlayer]  = useState(null);
   const [rejoining, setRejoining] = useState(false);
   const [session,   setSession]  = useState(() => loadSession());
+  const [activeChallenges, setActiveChallenges] = useState([]); // all live challenges for this user
+  const [challengesLoading, setChallengesLoading] = useState(false);
   const [showAbout,      setShowAbout]      = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(
     () => !localStorage.getItem(ONBOARDING_KEY)
   );
   const [toast,          showToast]         = useToast();
+
+  // Load all active challenges for logged-in user from Firebase
+  async function loadActiveChallenges(uid) {
+    if (!uid) { setActiveChallenges([]); return; }
+    setChallengesLoading(true);
+    try {
+      const list = await getUserChallenges(uid);
+      const challenges = await Promise.all(list.map(async ({ code }) => {
+        const ch = await dbGet(code);
+        return ch ? normaliseChallenge(ch) : null;
+      }));
+      // Filter to only live challenges — has races, not all results in yet, or recent
+      const live = challenges.filter(ch => {
+        if (!ch) return false;
+        const races = sortRaces(ch.selectedRaces || []);
+        if (!races.length) return true; // setup in progress — keep
+        const allDone = races.every(r => r.resultIn);
+        if (!allDone) return true; // still running
+        // Keep completed challenges for 24hrs after last result
+        const lastResult = Math.max(...races.filter(r => r.resultIn).map(r => r.resultAt || 0));
+        return lastResult > Date.now() - 24 * 60 * 60 * 1000;
+      });
+      setActiveChallenges(live);
+    } catch(e) { console.warn("loadActiveChallenges error:", e.message); }
+    setChallengesLoading(false);
+  }
 
   // Firebase Auth listener — fires once on mount, then on auth state changes
   useEffect(() => {
@@ -4581,8 +4816,10 @@ export default function App() {
       if (user) {
         await ensureUserProfile(user);
         setAuthUser(user);
+        loadActiveChallenges(user.uid);
       } else {
         setAuthUser(null);
+        setActiveChallenges([]);
       }
     });
     return unsub;
@@ -4730,7 +4967,7 @@ export default function App() {
       setCh(normaliseChallenge(fresh)); setPid(playerId); setPlayer(p);
       saveSession(code, playerId, p.name);
       setSession({ code, playerId, playerName: p.name });
-      const dest = fresh.status === "open" ? "lobby"
+      const dest = fresh.status === "open" ? "results"
                  : fresh.status === "selections" ? "picks"
                  : "results";
       setScreen(dest);
@@ -4762,10 +4999,28 @@ export default function App() {
       }
     }
 
+    // Check for existing open challenges on stables — warn creator
+    for (const sc of stableCodes) {
+      const stable = await stableGet(sc);
+      if (!stable) continue;
+      const openChs = Object.values(stable.challenges || {});
+      for (const existingRef of openChs) {
+        const existingCh = await dbGet(existingRef.code);
+        if (!existingCh) continue;
+        const races = sortRaces(existingCh.selectedRaces || []);
+        const allDone = races.length > 0 && races.every(r => r.resultIn);
+        if (!allDone && existingCh.status !== "complete") {
+          const proceed = confirm(`"${stable.name}" already has an open challenge (${existingRef.code}). Create a new one anyway?`);
+          if (!proceed) { setRejoining(false); return; }
+        }
+      }
+    }
+
     const newCh = { code, creatorId: playerId, creatorUid: authUser?.uid || null,
       status: "open", day: today, players,
       selectedRaces: [], selectedRaceIds: [], racecards: [],
-      stableCodes: stableCodes.length ? stableCodes : null };
+      stableCodes: stableCodes.length ? stableCodes : null,
+      stableCode: stableCodes.length === 1 ? stableCodes[0] : null }; // primary stable for display
     await dbSet(code, newCh);
     await addChallengeToUserIndex(authUser?.uid, code);
 
@@ -4781,6 +5036,7 @@ export default function App() {
     setCh(newCh); setPid(playerId); setPlayer(p);
     saveSession(code, playerId, displayName);
     setSession({ code, playerId, playerName: displayName });
+    if (authUser?.uid) loadActiveChallenges(authUser.uid);
     setScreen("setup");
   }
 
@@ -4796,10 +5052,11 @@ export default function App() {
     setCh(normaliseChallenge(fresh)); setPid(playerId); setPlayer(p);
     saveSession(fresh.code, playerId, displayName);
     setSession({ code: fresh.code, playerId, playerName: displayName });
-    setScreen(fresh.status === "selections" ? "picks" : "lobby");
+    if (authUser?.uid) loadActiveChallenges(authUser.uid);
+    setScreen(fresh.status === "selections" ? "picks" : "results");
   }
 
-  function handleSetupSave(updated) { setCh(updated); setScreen("lobby"); }
+  function handleSetupSave(updated) { setCh(updated); setScreen("results"); }
   function handleLobbyAction(action, updated) { if (updated) setCh(updated); setScreen(action); }
   function handlePicksSubmit(updatedCh, updatedPlayer) { setCh(updatedCh); setPlayer(updatedPlayer); setScreen("results"); }
 
@@ -4867,9 +5124,8 @@ export default function App() {
               {player && <span style={{ marginLeft: 10 }}>· {player.name}</span>}
             </div>
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-              {screen !== "lobby"   && <button className="btn btn-ghost btn-sm" onClick={() => setScreen("lobby")}>Lobby</button>}
               {screen !== "picks"   && ch?.status === "selections" && <button className="btn btn-ghost btn-sm" onClick={() => setScreen("picks")}>My Picks</button>}
-              {screen !== "results" && <button className="btn btn-ghost btn-sm" onClick={() => setScreen("results")}>Results</button>}
+              {screen !== "results" && <button className="btn btn-ghost btn-sm" onClick={() => setScreen("results")}>Leaderboard</button>}
               <button className="btn btn-ghost btn-sm" onClick={handleLeave}>Leave</button>
             </div>
           </div>
@@ -4944,8 +5200,25 @@ export default function App() {
               </div>
             </div>
 
-            {/* Welcome back */}
-            {session && (
+            {/* Active challenges — loaded from Firebase for auth users */}
+            {authUser && (
+              <ActiveChallengesList
+                challenges={activeChallenges}
+                loading={challengesLoading}
+                uid={authUser.uid}
+                onEnter={(ch) => {
+                  const myPlayer = ch.players?.[authUser.uid];
+                  setCh(ch); setPid(authUser.uid); setPlayer(myPlayer);
+                  saveSession(ch.code, authUser.uid, myPlayer?.name || authUser.displayName);
+                  setSession({ code: ch.code, playerId: authUser.uid, playerName: myPlayer?.name || authUser.displayName });
+                  const dest = ch.status === "selections" ? "picks" : "results";
+                  setScreen(dest);
+                }}
+              />
+            )}
+
+            {/* Legacy session for guests */}
+            {!authUser && session && (
               <WelcomeBackCard
                 session={session}
                 onRejoin={() => rejoinChallenge(session.code, session.playerId)}
@@ -5003,17 +5276,39 @@ export default function App() {
         )}
         {showStables && authUser ? (
           <StablesScreen authUser={authUser} directStableCode={directStableCode} onBack={() => { setShowStables(false); setDirectStableCode(null); }}
-            onCreateChallenge={async (stableCode) => {
-              // Create challenge linked to this specific stable only
+            onCreateChallenge={async (stableCodeOrChallengeCode) => {
+              // If passed a challenge code (entering existing), rejoin it
+              if (stableCodeOrChallengeCode && stableCodeOrChallengeCode.length === 5 && !stableCodeOrChallengeCode.startsWith("S")) {
+                await rejoinChallenge(stableCodeOrChallengeCode, authUser.uid);
+                setShowStables(false);
+                return;
+              }
+
+              // Otherwise create a new challenge linked to this stable
+              const stableCode = stableCodeOrChallengeCode;
               const playerId = authUser.uid;
               const code = genCode(5);
               const displayName = authUser.displayName || authUser.email;
               const p = { id: playerId, name: displayName, picks: {}, picksSubmitted: false, uid: authUser.uid };
               const today = new Date().toLocaleDateString("en-CA", { timeZone: "Europe/London" });
 
-              // Add active stable members as players
-              let players = { [playerId]: p };
               const stable = await stableGet(stableCode);
+              if (stable) {
+                // Check for existing open challenge
+                const openChs = Object.values(stable.challenges || {});
+                for (const chRef of openChs) {
+                  const existingCh = await dbGet(chRef.code);
+                  if (!existingCh) continue;
+                  const races = sortRaces(existingCh.selectedRaces || []);
+                  const allDone = races.length > 0 && races.every(r => r.resultIn);
+                  if (!allDone && existingCh.status !== "complete") {
+                    const proceed = confirm(`"${stable.name}" already has an open challenge. Create a new one anyway?`);
+                    if (!proceed) return;
+                  }
+                }
+              }
+
+              let players = { [playerId]: p };
               if (stable) {
                 Object.values(stable.members || {}).forEach(m => {
                   if (m.status !== "active" || m.uid === authUser.uid) return;
@@ -5027,12 +5322,13 @@ export default function App() {
               const newCh = { code, creatorId: playerId, creatorUid: authUser.uid,
                 status: "open", day: today, players,
                 selectedRaces: [], selectedRaceIds: [], racecards: [],
-                stableCodes: [stableCode] };
+                stableCodes: [stableCode], stableCode };
               await dbSet(code, newCh);
               await addChallengeToUserIndex(authUser.uid, code);
               setCh(newCh); setPid(playerId); setPlayer(p);
               saveSession(code, playerId, displayName);
               setSession({ code, playerId, playerName: displayName });
+              if (authUser?.uid) loadActiveChallenges(authUser.uid);
               setShowStables(false);
               setScreen("setup");
             }}
@@ -5055,9 +5351,8 @@ export default function App() {
         ) : (
           <>
             {screen === "setup"   && ch && <SetupScreen   challenge={ch} onSave={handleSetupSave} onBack={() => setScreen("home")} />}
-            {screen === "lobby"   && ch && <LobbyScreen   challenge={ch} playerId={pid} onAction={handleLobbyAction} onBack={() => setScreen("home")} deepLink={deepLink} />}
-            {screen === "picks"   && ch && <PicksScreen   challenge={ch} playerId={pid} onSubmit={handlePicksSubmit} onBack={() => setScreen("lobby")} />}
-            {screen === "results" && ch && <ResultsScreen challenge={ch} playerId={pid} isCreator={isCreator} onBack={() => setScreen("lobby")} />}
+            {screen === "picks"   && ch && <PicksScreen   challenge={ch} playerId={pid} onSubmit={handlePicksSubmit} onBack={() => setScreen("results")} />}
+            {screen === "results" && ch && <ResultsScreen challenge={ch} playerId={pid} isCreator={isCreator} onBack={handleLeave} />}
           </>
         )}
       </div>
