@@ -4818,6 +4818,7 @@ export default function App() {
         return ch ? normaliseChallenge(ch) : null;
       }));
       const active = [], past = [];
+      const todayStr = new Date().toLocaleDateString("en-CA", { timeZone: "Europe/London" });
       challenges.forEach(ch => {
         if (!ch) return;
         const races = sortRaces(ch.selectedRaces || []);
@@ -4825,10 +4826,21 @@ export default function App() {
         if (!races.length) return;
         const allDone = races.every(r => r.resultIn);
         if (allDone) {
-          past.push(ch);
-        } else {
-          active.push(ch);
+          // Only show in past if someone actually played
+          const anyPastPicks = Object.values(ch.players || {}).some(p => p.picksSubmitted);
+          if (anyPastPicks) past.push(ch);
+          return;
         }
+        // Exclude dead challenges — races selected, nobody picked, created before yesterday
+        const anyPicks = Object.values(ch.players || {}).some(p => p.picksSubmitted);
+        if (!anyPicks) {
+          const yesterday = new Date();
+          yesterday.setDate(yesterday.getDate() - 1);
+          const yesterdayStr = yesterday.toLocaleDateString("en-CA", { timeZone: "Europe/London" });
+          const chDay = ch.day || "";
+          if (chDay && chDay < yesterdayStr) return; // created before yesterday, no picks — dead
+        }
+        active.push(ch);
       });
       // Sort past most recent first
       past.sort((a, b) => {
