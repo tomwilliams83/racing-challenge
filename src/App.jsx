@@ -4470,84 +4470,106 @@ function ProfileScreen({ authUser, onBack, onRejoin }) {
 }
 
 // ── ACTIVE CHALLENGES LIST ────────────────────────────────────────────────────
-function ActiveChallengesList({ challenges, loading, uid, onEnter }) {
+function ActiveChallengesList({ challenges, pastChallenges = [], loading, uid, onEnter }) {
+  const [showPast, setShowPast] = useState(false);
+
   if (loading) return (
     <div className="card" style={{ marginBottom: 16, textAlign: "center", padding: "14px" }}>
       <div style={{ fontSize: 13, color: C.mutedLt }}>Loading your challenges…</div>
     </div>
   );
-  if (!challenges.length) return null;
+  if (!challenges.length && !pastChallenges.length) return null;
+
+  function ChallengeCard({ ch }) {
+    const player = ch.players?.[uid];
+    const races = sortRaces(ch.selectedRaces || []);
+    const allDone = races.length > 0 && races.every(r => r.resultIn);
+    const locked = isChallengeLocked(ch);
+    const hasPicks = player?.picksSubmitted;
+    const players = Object.values(ch.players || {});
+
+    let posText = null;
+    if (locked && races.some(r => r.resultIn)) {
+      const scored = players.map(p => {
+        let total = 0;
+        races.forEach(r => {
+          if (!r.resultIn) return;
+          const pick = p.picks?.[r.id];
+          if (!pick?.horseId) return;
+          const horse = r.runners?.find(h => h.id === pick.horseId);
+          if (!horse) return;
+          total += calcSelectionReturn(horse.sp, pick.betType || "win", horse.position, r.ewTerms, p.napRaceId === r.id, horse.spDec).total;
+        });
+        return { id: p.id, total };
+      }).sort((a, b) => b.total - a.total);
+      const pos = scored.findIndex(p => p.id === uid) + 1;
+      const n = scored.length;
+      posText = pos === 1 ? `🏆 1st of ${n}` : pos === 2 ? `🥈 2nd of ${n}` : pos === 3 ? `🥉 3rd of ${n}` : `${pos}th of ${n}`;
+    }
+
+    let status, tone;
+    if (allDone) {
+      status = `${posText || "Complete"} — tap to see results`;
+      tone = C.muted;
+    } else if (!locked) {
+      status = hasPicks ? "✅ Picks in — waiting for race day" : "⏰ Get your picks in!";
+      tone = hasPicks ? C.blue : C.pink;
+    } else {
+      status = posText ? `🏇 ${posText} — live` : hasPicks ? "🏇 Race day — live!" : "⏳ Locked";
+      tone = posText?.startsWith("🏆") ? C.pink : C.blue;
+    }
+
+    const border = tone === C.pink ? C.pink : allDone ? C.border : C.border;
+    const bg = tone === C.pink ? C.pinkBg : "#fff";
+
+    return (
+      <div onClick={() => onEnter(ch)} className="card"
+        style={{ marginBottom: 10, cursor: "pointer", borderColor: border, background: bg,
+          opacity: allDone ? 0.85 : 1 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
+          <div>
+            <div style={{ fontSize: 11, color: C.muted, fontWeight: 600, letterSpacing: 1,
+              textTransform: "uppercase", marginBottom: 2 }}>
+              {ch.stableCode ? "🏠 Stable Challenge" : "Challenge"}
+              {ch.isCanned ? " · 📺 Official" : ""}
+            </div>
+            <div style={{ fontFamily: "'DM Serif Display', serif", fontSize: 18, color: C.text }}>
+              {races.length} race{races.length !== 1 ? "s" : ""}
+              <span style={{ fontSize: 13, color: C.muted, fontWeight: 400, marginLeft: 8 }}>
+                {players.length} player{players.length !== 1 ? "s" : ""}
+              </span>
+            </div>
+          </div>
+          <div style={{ fontSize: 11, color: C.mutedLt, fontFamily: "monospace" }}>{ch.code}</div>
+        </div>
+        <div style={{ fontSize: 13, color: tone, fontWeight: 600 }}>{status}</div>
+      </div>
+    );
+  }
 
   return (
     <div style={{ marginBottom: 16 }}>
-      <div style={{ fontSize: 11, letterSpacing: 2, color: C.muted, fontWeight: 600,
-        textTransform: "uppercase", marginBottom: 8 }}>Your Active Challenges</div>
-      {challenges.map(ch => {
-        const player = ch.players?.[uid];
-        const races = sortRaces(ch.selectedRaces || []);
-        const allDone = races.length > 0 && races.every(r => r.resultIn);
-        const locked = isChallengeLocked(ch);
-        const hasPicks = player?.picksSubmitted;
-        const players = Object.values(ch.players || {});
+      {challenges.length > 0 && (
+        <>
+          <div style={{ fontSize: 11, letterSpacing: 2, color: C.muted, fontWeight: 600,
+            textTransform: "uppercase", marginBottom: 8 }}>Your Active Challenges</div>
+          {challenges.map(ch => <ChallengeCard key={ch.code} ch={ch} />)}
+        </>
+      )}
 
-        // Work out position if locked and results coming in
-        let posText = null;
-        if (locked && races.some(r => r.resultIn)) {
-          const scored = players.map(p => {
-            let total = 0;
-            races.forEach(r => {
-              if (!r.resultIn) return;
-              const pick = p.picks?.[r.id];
-              if (!pick?.horseId) return;
-              const horse = r.runners?.find(h => h.id === pick.horseId);
-              if (!horse) return;
-              total += calcSelectionReturn(horse.sp, pick.betType || "win", horse.position, r.ewTerms, p.napRaceId === r.id, horse.spDec).total;
-            });
-            return { id: p.id, total };
-          }).sort((a, b) => b.total - a.total);
-          const pos = scored.findIndex(p => p.id === uid) + 1;
-          const total = scored.length;
-          posText = pos === 1 ? `🏆 1st of ${total}` : pos === 2 ? `🥈 2nd of ${total}` : pos === 3 ? `🥉 3rd of ${total}` : `${pos}th of ${total}`;
-        }
-
-        let status, tone;
-        if (allDone) {
-          status = `${posText || "Complete"} — tap to see results`;
-          tone = C.blue;
-        } else if (!locked) {
-          status = hasPicks ? "✅ Picks in — waiting for race day" : "⏰ Get your picks in!";
-          tone = hasPicks ? C.blue : C.pink;
-        } else {
-          status = posText ? `🏇 ${posText} — live` : hasPicks ? "🏇 Race day — live!" : "⏳ Locked";
-          tone = posText && posText.startsWith("🏆") ? C.pink : C.blue;
-        }
-
-        const border = tone === C.pink ? C.pink : C.border;
-        const bg = tone === C.pink ? C.pinkBg : "#fff";
-
-        return (
-          <div key={ch.code} onClick={() => onEnter(ch)} className="card"
-            style={{ marginBottom: 10, cursor: "pointer", borderColor: border, background: bg }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
-              <div>
-                <div style={{ fontSize: 11, color: C.muted, fontWeight: 600, letterSpacing: 1,
-                  textTransform: "uppercase", marginBottom: 2 }}>
-                  {ch.stableCode ? `🏠 Stable Challenge` : "Challenge"}
-                  {ch.isCanned ? " · 📺 Official" : ""}
-                </div>
-                <div style={{ fontFamily: "'DM Serif Display', serif", fontSize: 18, color: C.text }}>
-                  {races.length ? `${races.length} race${races.length !== 1 ? "s" : ""}` : "Setting up…"}
-                  <span style={{ fontSize: 13, color: C.muted, fontWeight: 400, marginLeft: 8 }}>
-                    {players.length} player{players.length !== 1 ? "s" : ""}
-                  </span>
-                </div>
-              </div>
-              <div style={{ fontSize: 11, color: C.mutedLt, fontFamily: "monospace" }}>{ch.code}</div>
-            </div>
-            <div style={{ fontSize: 13, color: tone, fontWeight: 600 }}>{status}</div>
-          </div>
-        );
-      })}
+      {pastChallenges.length > 0 && (
+        <div style={{ marginTop: challenges.length ? 8 : 0 }}>
+          <button onClick={() => setShowPast(p => !p)}
+            style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "inherit",
+              fontSize: 11, letterSpacing: 2, color: C.mutedLt, fontWeight: 600,
+              textTransform: "uppercase", marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
+            Past Challenges ({pastChallenges.length})
+            <span style={{ fontSize: 10, display: "inline-block",
+              transform: showPast ? "rotate(180deg)" : "none", transition: "transform .2s" }}>▼</span>
+          </button>
+          {showPast && pastChallenges.map(ch => <ChallengeCard key={ch.code} ch={ch} />)}
+        </div>
+      )}
     </div>
   );
 }
@@ -4776,7 +4798,8 @@ export default function App() {
   const [player,    setPlayer]  = useState(null);
   const [rejoining, setRejoining] = useState(false);
   const [session,   setSession]  = useState(() => loadSession());
-  const [activeChallenges, setActiveChallenges] = useState([]); // all live challenges for this user
+  const [activeChallenges, setActiveChallenges] = useState([]);
+  const [pastChallenges,   setPastChallenges]   = useState([]);
   const [challengesLoading, setChallengesLoading] = useState(false);
   const [showAbout,      setShowAbout]      = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(
@@ -4784,9 +4807,9 @@ export default function App() {
   );
   const [toast,          showToast]         = useToast();
 
-  // Load all active challenges for logged-in user from Firebase
+  // Load all challenges for logged-in user — split into active and past
   async function loadActiveChallenges(uid) {
-    if (!uid) { setActiveChallenges([]); return; }
+    if (!uid) { setActiveChallenges([]); setPastChallenges([]); return; }
     setChallengesLoading(true);
     try {
       const list = await getUserChallenges(uid);
@@ -4794,18 +4817,27 @@ export default function App() {
         const ch = await dbGet(code);
         return ch ? normaliseChallenge(ch) : null;
       }));
-      // Filter to only live challenges — has races, not all results in yet, or recent
-      const live = challenges.filter(ch => {
-        if (!ch) return false;
+      const active = [], past = [];
+      challenges.forEach(ch => {
+        if (!ch) return;
         const races = sortRaces(ch.selectedRaces || []);
-        if (!races.length) return true; // setup in progress — keep
+        // Exclude challenges with no races selected — abandoned/test
+        if (!races.length) return;
         const allDone = races.every(r => r.resultIn);
-        if (!allDone) return true; // still running
-        // Keep completed challenges for 24hrs after last result
-        const lastResult = Math.max(...races.filter(r => r.resultIn).map(r => r.resultAt || 0));
-        return lastResult > Date.now() - 24 * 60 * 60 * 1000;
+        if (allDone) {
+          past.push(ch);
+        } else {
+          active.push(ch);
+        }
       });
-      setActiveChallenges(live);
+      // Sort past most recent first
+      past.sort((a, b) => {
+        const aDate = sortRaces(a.selectedRaces || []).slice(-1)[0]?.time || "";
+        const bDate = sortRaces(b.selectedRaces || []).slice(-1)[0]?.time || "";
+        return bDate.localeCompare(aDate);
+      });
+      setActiveChallenges(active);
+      setPastChallenges(past);
     } catch(e) { console.warn("loadActiveChallenges error:", e.message); }
     setChallengesLoading(false);
   }
@@ -5204,6 +5236,7 @@ export default function App() {
             {authUser && (
               <ActiveChallengesList
                 challenges={activeChallenges}
+                pastChallenges={pastChallenges}
                 loading={challengesLoading}
                 uid={authUser.uid}
                 onEnter={(ch) => {
