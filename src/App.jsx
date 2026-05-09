@@ -4831,14 +4831,11 @@ export default function App() {
           if (anyPastPicks) past.push(ch);
           return;
         }
-        // Exclude dead challenges — races selected, nobody picked, created before yesterday
+        // Exclude dead challenges — races selected, nobody picked, first race already gone off
         const anyPicks = Object.values(ch.players || {}).some(p => p.picksSubmitted);
-        if (!anyPicks) {
-          const yesterday = new Date();
-          yesterday.setDate(yesterday.getDate() - 1);
-          const yesterdayStr = yesterday.toLocaleDateString("en-CA", { timeZone: "Europe/London" });
-          const chDay = ch.day || "";
-          if (chDay && chDay < yesterdayStr) return; // created before yesterday, no picks — dead
+        if (!anyPicks && races.length) {
+          const firstOff = raceTimeToDate(races[0].time, ch.day || "today");
+          if (firstOff && firstOff < new Date()) return; // first race gone off, no picks — dead
         }
         active.push(ch);
       });
@@ -5259,12 +5256,15 @@ export default function App() {
                 pastChallenges={pastChallenges}
                 loading={challengesLoading}
                 uid={authUser.uid}
-                onEnter={(ch) => {
-                  const myPlayer = ch.players?.[authUser.uid];
-                  setCh(ch); setPid(authUser.uid); setPlayer(myPlayer);
-                  saveSession(ch.code, authUser.uid, myPlayer?.name || authUser.displayName);
-                  setSession({ code: ch.code, playerId: authUser.uid, playerName: myPlayer?.name || authUser.displayName });
-                  const dest = ch.status === "selections" ? "picks" : "results";
+                onEnter={async (ch) => {
+                  // Always fetch fresh from Firebase — cached version may be stale
+                  const fresh = await dbGet(ch.code);
+                  const live = fresh ? normaliseChallenge(fresh) : ch;
+                  const myPlayer = live.players?.[authUser.uid];
+                  setCh(live); setPid(authUser.uid); setPlayer(myPlayer);
+                  saveSession(live.code, authUser.uid, myPlayer?.name || authUser.displayName);
+                  setSession({ code: live.code, playerId: authUser.uid, playerName: myPlayer?.name || authUser.displayName });
+                  const dest = live.status === "selections" ? "picks" : "results";
                   setScreen(dest);
                 }}
               />
