@@ -1104,7 +1104,7 @@ function ActiveStableChallenge({ stable, authUser, onCreateChallenge }) {
       ) : null}
       <button className="btn btn-pink btn-sm" style={{ width: "100%" }}
         onClick={() => onCreateChallenge(liveChallenge.code)}>
-        Enter Challenge →
+        {myPlayer ? "Go to Challenge →" : "Enter Challenge →"}
       </button>
     </div>
   );
