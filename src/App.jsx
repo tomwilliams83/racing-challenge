@@ -1042,11 +1042,18 @@ function ActiveStableChallenge({ stable, authUser, onCreateChallenge }) {
         const ch = await dbGet(ref.code);
         if (!ch || cancelled) continue;
         const races = sortRaces(ch.selectedRaces || []);
-        const allDone = races.length > 0 && races.every(r => r.resultIn);
-        if (!allDone && ch.status !== "complete") {
-          if (!cancelled) setLiveChallenge(normaliseChallenge(ch));
-          break;
+        // Skip challenges with no races — abandoned/test
+        if (!races.length) continue;
+        const allDone = races.every(r => r.resultIn);
+        if (allDone || ch.status === "complete") continue;
+        // Skip dead challenges — no picks and first race already gone off
+        const anyPicks = Object.values(ch.players || {}).some(p => p.picksSubmitted);
+        if (!anyPicks) {
+          const firstOff = raceTimeToDate(races[0].time, ch.day || "today");
+          if (firstOff && firstOff < new Date()) continue;
         }
+        if (!cancelled) setLiveChallenge(normaliseChallenge(ch));
+        break;
       }
       if (!cancelled) setLoading(false);
     }
