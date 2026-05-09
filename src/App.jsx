@@ -3203,7 +3203,7 @@ function ResultsScreen({ challenge, playerId, isCreator, onBack }) {
   const races   = sortRaces(ch.selectedRaces || []);
   const players = Object.values(ch.players || {});
   // Picks are visible to all once the first race has gone off
-  const isLocked = races.length > 0 && raceTimeToDate(races[0].time, "today") <= new Date();
+  const isLocked = races.length > 0 && raceTimeToDate(races[0].time, ch.day || "today") <= new Date();
 
   // Real-time listener — all players see updates instantly
   useEffect(() => {
