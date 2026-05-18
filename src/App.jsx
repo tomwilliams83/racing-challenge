@@ -1047,7 +1047,7 @@ function ActiveStableChallenge({ stable, authUser, onCreateChallenge }) {
         const raceDone = r => {
           if (r.resultIn) return true;
           const players = Object.values(ch.players || {});
-          return players.length > 0 && players.every(p => !p.picks?.[r.id] || p.picks[r.id].nrDefaultApplied);
+          { const anyP = players.some(p => p.picks?.[r.id]); return anyP && players.every(p => { const pk = p.picks?.[r.id]; return pk?.nrDefaultApplied; }); }
         };
         const allDone = races.every(r => raceDone(r));
         if (allDone || ch.status === "complete") continue;
@@ -2398,7 +2398,7 @@ function SetupScreen({ challenge, onSave, onBack }) {
   async function save() {
     const selectedRaces = racecards.filter(r => selected.has(r.id));
     const updated = { ...challenge, day: resolveDate(day), racecards,
-      selectedRaceIds: [...selected], selectedRaces, status: "open",
+      selectedRaceIds: [...selected], selectedRaces, status: "selections",
       isCanned: usedItvCard, // mark as official canned challenge for badges/stats
       itvLabel: usedItvCard ? (itvCard?.label || null) : null,
     };
@@ -4853,14 +4853,19 @@ export default function App() {
         const races = sortRaces(ch.selectedRaces || []);
         // Exclude challenges with no races selected — abandoned/test
         if (!races.length) return;
-        // A race is done if resultIn, OR if every player's pick for it has nrDefaultApplied
+        // A race is done if resultIn, OR every player has nrDefaultApplied for it
         const raceDone = r => {
           if (r.resultIn) return true;
           const players = Object.values(ch.players || {});
           if (!players.length) return false;
+          // Only count as done via NR default if at least one player has a pick
+          const anyPickExists = players.some(p => p.picks?.[r.id]);
+          if (!anyPickExists) return false;
           return players.every(p => {
             const pick = p.picks?.[r.id];
-            return !pick || pick.nrDefaultApplied;
+            // No pick = not done; pick with nrDefaultApplied = done
+            if (!pick) return false;
+            return pick.nrDefaultApplied;
           });
         };
         const allDone = races.every(r => raceDone(r));
@@ -5370,7 +5375,7 @@ export default function App() {
                   const raceDone = r => {
                     if (r.resultIn) return true;
                     const players = Object.values(existingCh.players || {});
-                    return players.length > 0 && players.every(p => !p.picks?.[r.id] || p.picks[r.id].nrDefaultApplied);
+                    { const anyP = players.some(p => p.picks?.[r.id]); return anyP && players.every(p => { const pk = p.picks?.[r.id]; return pk?.nrDefaultApplied; }); }
                   };
                   const allDone = races.every(r => raceDone(r));
                   if (allDone || existingCh.status === "complete") continue;
