@@ -1,0 +1,25 @@
+name: Non-Picker Removal
+
+on:
+  schedule:
+    # Once daily at 14:30 UTC (15:30 BST), Tue-Sun
+    - cron: '30 14 * * 2-0'
+  workflow_dispatch:
+
+jobs:
+  remove-nonpickers:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call non-picker removal endpoint
+        run: |
+          curl -s -X GET \
+            -H "x-cron-secret: ${{ secrets.CRON_SECRET }}" \
+            "${{ secrets.APP_URL }}/api/cron-nonpickers" \
+            | tee response.json
+          if cat response.json | grep -q '"error"'; then
+            echo "Non-picker removal failed"
+            cat response.json
+            exit 1
+          fi
+          echo "Non-picker removal completed"
+          cat response.json

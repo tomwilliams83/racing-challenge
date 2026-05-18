@@ -1,0 +1,25 @@
+name: Results Processing
+
+on:
+  schedule:
+    # Every 30 mins, Tue-Sun, 14:00-20:00 UTC
+    - cron: '0,30 14-20 * * 2-0'
+  workflow_dispatch:
+
+jobs:
+  process-results:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call results processing endpoint
+        run: |
+          curl -s -X GET \
+            -H "x-cron-secret: ${{ secrets.CRON_SECRET }}" \
+            "${{ secrets.APP_URL }}/api/cron-results" \
+            | tee response.json
+          if cat response.json | grep -q '"error"'; then
+            echo "Results processing failed"
+            cat response.json
+            exit 1
+          fi
+          echo "Results processing completed"
+          cat response.json
