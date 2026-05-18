@@ -4844,6 +4844,16 @@ export default function App() {
           const firstOff = raceTimeToDate(races[0].time, ch.day || "today");
           if (firstOff && firstOff < new Date()) return; // first race gone off, no picks — dead
         }
+        // Move to past if day is more than 2 days ago — stale/unresolved challenge
+        if (ch.day) {
+          const twoDaysAgo = new Date();
+          twoDaysAgo.setDate(twoDaysAgo.getDate() - 2);
+          const twoDaysAgoStr = twoDaysAgo.toLocaleDateString("en-CA", { timeZone: "Europe/London" });
+          if (ch.day < twoDaysAgoStr) {
+            if (anyPicks) past.push(ch);
+            return;
+          }
+        }
         active.push(ch);
       });
       // Sort past most recent first
@@ -5015,8 +5025,9 @@ export default function App() {
       setCh(normaliseChallenge(fresh)); setPid(playerId); setPlayer(p);
       saveSession(code, playerId, p.name);
       setSession({ code, playerId, playerName: p.name });
+      const myPlayer = fresh.players?.[playerId];
       const dest = fresh.status === "open" ? "results"
-                 : fresh.status === "selections" ? "picks"
+                 : fresh.status === "selections" && !myPlayer?.picksSubmitted ? "picks"
                  : "results";
       setScreen(dest);
     }
@@ -5044,32 +5055,6 @@ export default function App() {
           if (m.status !== "active" || m.uid === authUser.uid) return;
           players[m.uid] = { id: m.uid, name: m.name, picks: {}, picksSubmitted: false, uid: m.uid };
         });
-      }
-    }
-
-    // Check for existing open challenges on stables — warn creator
-    for (const sc of stableCodes) {
-      const stable = await stableGet(sc);
-      if (!stable) continue;
-      const openChs = Object.values(stable.challenges || {});
-      let warned = false;
-      for (const existingRef of openChs) {
-        if (warned) break;
-        const existingCh = await dbGet(existingRef.code);
-        if (!existingCh) continue;
-        const races = sortRaces(existingCh.selectedRaces || []);
-        if (!races.length) continue; // no races — abandoned
-        const allDone = races.every(r => r.resultIn);
-        if (allDone || existingCh.status === "complete") continue;
-        // Skip dead — no picks and first race already gone off
-        const anyPicks = Object.values(existingCh.players || {}).some(p => p.picksSubmitted);
-        if (!anyPicks) {
-          const firstOff = raceTimeToDate(races[0].time, existingCh.day || "today");
-          if (firstOff && firstOff < new Date()) continue;
-        }
-        const proceed = confirm(`"${stable.name}" already has an open challenge (${existingRef.code}). Create a new one anyway?`);
-        if (!proceed) { setRejoining(false); return; }
-        warned = true;
       }
     }
 
@@ -5272,7 +5257,8 @@ export default function App() {
                   setCh(live); setPid(authUser.uid); setPlayer(myPlayer);
                   saveSession(live.code, authUser.uid, myPlayer?.name || authUser.displayName);
                   setSession({ code: live.code, playerId: authUser.uid, playerName: myPlayer?.name || authUser.displayName });
-                  const dest = live.status === "selections" ? "picks" : "results";
+                  const myPicks = myPlayer?.picksSubmitted;
+                  const dest = live.status === "selections" && !myPicks ? "picks" : "results";
                   setScreen(dest);
                 }}
               />
