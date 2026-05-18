@@ -3438,6 +3438,7 @@ function ResultsScreen({ challenge, playerId, isCreator, onBack }) {
               const updated = { ...ch, status: "selections" };
               await dbSet(ch.code, updated);
               setCh(normaliseChallenge(updated));
+              setScreen("picks");
             }}>
               Open Selections →
             </button>
@@ -5079,38 +5080,13 @@ export default function App() {
       uid: authUser?.uid || null };
     const today = new Date().toLocaleDateString("en-CA", { timeZone: "Europe/London" });
 
-    // Auto-add active stable members as players
-    let players = { [playerId]: p };
-    let stableCodes = [];
-    if (authUser?.uid) {
-      const stables = await getUserStables(authUser.uid);
-      stableCodes = stables.map(s => s.code);
-      for (const { code: sc } of stables) {
-        const stable = await stableGet(sc);
-        if (!stable) continue;
-        Object.values(stable.members || {}).forEach(m => {
-          if (m.status !== "active" || m.uid === authUser.uid) return;
-          players[m.uid] = { id: m.uid, name: m.name, picks: {}, picksSubmitted: false, uid: m.uid };
-        });
-      }
-    }
-
+    // Standalone challenge from home screen — no stable linking, go straight to selections
     const newCh = { code, creatorId: playerId, creatorUid: authUser?.uid || null,
-      status: "open", day: today, players,
+      status: "selections", day: today, players: { [playerId]: p },
       selectedRaces: [], selectedRaceIds: [], racecards: [],
-      stableCodes: stableCodes.length ? stableCodes : null,
-      stableCode: stableCodes.length === 1 ? stableCodes[0] : null }; // primary stable for display
+      stableCodes: null, stableCode: null };
     await dbSet(code, newCh);
     await addChallengeToUserIndex(authUser?.uid, code);
-
-    // Register challenge on each stable
-    for (const sc of stableCodes) {
-      const stable = await stableGet(sc);
-      if (!stable) continue;
-      stable.challenges = stable.challenges || {};
-      stable.challenges[code] = { code, day: today, creatorUid: authUser.uid };
-      await stableSet(sc, stable);
-    }
 
     setCh(newCh); setPid(playerId); setPlayer(p);
     saveSession(code, playerId, displayName);
@@ -5295,7 +5271,11 @@ export default function App() {
                   saveSession(live.code, authUser.uid, myPlayer?.name || authUser.displayName);
                   setSession({ code: live.code, playerId: authUser.uid, playerName: myPlayer?.name || authUser.displayName });
                   const myPicks = myPlayer?.picksSubmitted;
-                  const dest = live.status === "selections" && !myPicks ? "picks" : "results";
+                  const isLocked = (() => {
+                    const r = sortRaces(live.selectedRaces || []);
+                    return r.length > 0 && raceTimeToDate(r[0].time, live.day || "today") <= new Date();
+                  })();
+                  const dest = live.status === "selections" && !myPicks && !isLocked ? "picks" : "results";
                   setScreen(dest);
                 }}
               />
