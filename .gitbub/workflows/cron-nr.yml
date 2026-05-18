@@ -1,1 +1,26 @@
+name: NR Detection
 
+on:
+  schedule:
+    # Every 20 mins, Tue-Sun, 11:00-18:00 UTC (approx UK race hours)
+    - cron: '0,20,40 11-18 * * 2-0'
+  workflow_dispatch: # allow manual trigger
+
+jobs:
+  check-nrs:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call NR detection endpoint
+        run: |
+          curl -s -X GET \
+            -H "x-cron-secret: ${{ secrets.CRON_SECRET }}" \
+            "${{ secrets.APP_URL }}/api/cron-nr" \
+            | tee response.json
+          # Fail if error key present
+          if cat response.json | grep -q '"error"'; then
+            echo "NR check failed"
+            cat response.json
+            exit 1
+          fi
+          echo "NR check completed"
+          cat response.json
