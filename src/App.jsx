@@ -1044,7 +1044,12 @@ function ActiveStableChallenge({ stable, authUser, onCreateChallenge }) {
         const races = sortRaces(ch.selectedRaces || []);
         // Skip challenges with no races — abandoned/test
         if (!races.length) continue;
-        const allDone = races.every(r => r.resultIn);
+        const raceDone = r => {
+          if (r.resultIn) return true;
+          const players = Object.values(ch.players || {});
+          return players.length > 0 && players.every(p => !p.picks?.[r.id] || p.picks[r.id].nrDefaultApplied);
+        };
+        const allDone = races.every(r => raceDone(r));
         if (allDone || ch.status === "complete") continue;
         // Skip dead challenges — no picks and first race already gone off
         const anyPicks = Object.values(ch.players || {}).some(p => p.picksSubmitted);
@@ -3301,6 +3306,22 @@ function ResultsScreen({ challenge, playerId, isCreator, onBack }) {
         const oldCount = (fresh.selectedRaces || []).filter(r => r.resultIn).length;
         if (newCount > oldCount) {
           fresh.selectedRaces = updated;
+          // Write nrDefaultApplied to any NR picks for newly settled races
+          const newlySettled = updated.filter((r, i) => r.resultIn && !(fresh.selectedRaces[i]?.resultIn));
+          Object.values(fresh.players || {}).forEach(p => {
+            updated.forEach(race => {
+              if (!race.resultIn) return;
+              const pick = p.picks?.[race.id];
+              if (!pick?.nonRunner || pick.nrDefaultApplied) return;
+              // Find SP favourite
+              const finishers = (race.runners || []).filter(h => h.spDec != null && h.spDec > 0);
+              if (!finishers.length) return;
+              const lowestSP = Math.min(...finishers.map(h => h.spDec));
+              const fav = finishers.filter(h => h.spDec === lowestSP)
+                .sort((a, b) => (parseInt(a.number)||999) - (parseInt(b.number)||999))[0];
+              if (fav) p.picks[race.id] = { ...pick, horseId: fav.id, nrDefaultApplied: true, betType: "win" };
+            });
+          });
           await dbSet(fresh.code, fresh);
           if (!cancelled) {
             setCh(prev => ({ ...prev, selectedRaces: updated }));
@@ -4831,15 +4852,31 @@ export default function App() {
         const races = sortRaces(ch.selectedRaces || []);
         // Exclude challenges with no races selected — abandoned/test
         if (!races.length) return;
-        const allDone = races.every(r => r.resultIn);
+        // A race is done if resultIn, OR if every player's pick for it has nrDefaultApplied
+        const raceDone = r => {
+          if (r.resultIn) return true;
+          const players = Object.values(ch.players || {});
+          if (!players.length) return false;
+          return players.every(p => {
+            const pick = p.picks?.[r.id];
+            return !pick || pick.nrDefaultApplied;
+          });
+        };
+        const allDone = races.every(r => raceDone(r));
         if (allDone) {
           // Only show in past if someone actually played
-          const anyPastPicks = Object.values(ch.players || {}).some(p => p.picksSubmitted);
+          const anyPastPicks = Object.values(ch.players || {}).some(p =>
+            p.picksSubmitted ||
+            Object.values(p.picks || {}).some(pick => pick?.nrDefaultApplied)
+          );
           if (anyPastPicks) past.push(ch);
           return;
         }
         // Exclude dead challenges — races selected, nobody picked, first race already gone off
-        const anyPicks = Object.values(ch.players || {}).some(p => p.picksSubmitted);
+        const anyPicks = Object.values(ch.players || {}).some(p =>
+          p.picksSubmitted ||
+          Object.values(p.picks || {}).some(pick => pick?.nrDefaultApplied)
+        );
         if (!anyPicks && races.length) {
           const firstOff = raceTimeToDate(races[0].time, ch.day || "today");
           if (firstOff && firstOff < new Date()) return; // first race gone off, no picks — dead
@@ -5350,7 +5387,12 @@ export default function App() {
                   if (!existingCh) continue;
                   const races = sortRaces(existingCh.selectedRaces || []);
                   if (!races.length) continue; // no races — abandoned
-                  const allDone = races.every(r => r.resultIn);
+                  const raceDone = r => {
+                    if (r.resultIn) return true;
+                    const players = Object.values(existingCh.players || {});
+                    return players.length > 0 && players.every(p => !p.picks?.[r.id] || p.picks[r.id].nrDefaultApplied);
+                  };
+                  const allDone = races.every(r => raceDone(r));
                   if (allDone || existingCh.status === "complete") continue;
                   // Skip dead — no picks and first race already gone off
                   const anyPicks = Object.values(existingCh.players || {}).some(p => p.picksSubmitted);
