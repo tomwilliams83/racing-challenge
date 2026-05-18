@@ -5116,7 +5116,12 @@ export default function App() {
     setScreen(fresh.status === "selections" ? "picks" : "results");
   }
 
-  function handleSetupSave(updated) { setCh(updated); setScreen("results"); }
+  function handleSetupSave(updated) {
+    setCh(updated);
+    // Creator goes straight to picks after setting up races
+    const locked = isChallengeLocked(updated);
+    setScreen(locked ? "results" : "picks");
+  }
   function handleLobbyAction(action, updated) { if (updated) setCh(updated); setScreen(action); }
   function handlePicksSubmit(updatedCh, updatedPlayer) { setCh(updatedCh); setPlayer(updatedPlayer); setScreen("results"); }
 
