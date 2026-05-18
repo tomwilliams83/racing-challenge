@@ -3185,7 +3185,7 @@ function NRPanel({ races, onToggle }) {
   );
 }
 
-function ResultsScreen({ challenge, playerId, isCreator, onBack }) {
+function ResultsScreen({ challenge, playerId, isCreator, onBack, onPicks }) {
   const [ch,          setCh]        = useState(challenge);
   const [tab,         setTab]       = useState(null);
   const [err,         setErr]       = useState("");
@@ -3438,7 +3438,7 @@ function ResultsScreen({ challenge, playerId, isCreator, onBack }) {
               const updated = { ...ch, status: "selections" };
               await dbSet(ch.code, updated);
               setCh(normaliseChallenge(updated));
-              setScreen("picks");
+              if (onPicks) onPicks(normaliseChallenge(updated));
             }}>
               Open Selections →
             </button>
@@ -5435,7 +5435,7 @@ export default function App() {
           <>
             {screen === "setup"   && ch && <SetupScreen   challenge={ch} onSave={handleSetupSave} onBack={() => setScreen("home")} />}
             {screen === "picks"   && ch && <PicksScreen   challenge={ch} playerId={pid} onSubmit={handlePicksSubmit} onBack={() => setScreen("results")} />}
-            {screen === "results" && ch && <ResultsScreen challenge={ch} playerId={pid} isCreator={isCreator} onBack={handleLeave} />}
+            {screen === "results" && ch && <ResultsScreen challenge={ch} playerId={pid} isCreator={isCreator} onBack={handleLeave} onPicks={(updated) => { setCh(updated); setScreen("picks"); }} />}
           </>
         )}
       </div>
