@@ -3496,8 +3496,10 @@ function ResultsScreen({ challenge, playerId, isCreator, onBack, onPicks }) {
                 {p.id === playerId ? <span style={{ color: C.muted, fontSize: 13, fontWeight: 400 }}> (you)</span> : ""}
               </div>
               <div style={{ fontSize: 13, color: C.muted, marginTop: 2 }}>
-                {p.wins}W{p.places > 0 ? ` · ${p.places}P` : ""} · {p.totalStaked} pts staked
-                {!p.picksSubmitted ? " · ⏳ pending" : ""}
+                {p.picksSubmitted
+                  ? <span style={{ color: C.win, fontWeight: 600 }}>✅ Picks in{p.wins > 0 ? ` · ${p.wins}W${p.places > 0 ? ` ${p.places}P` : ""}` : ""}</span>
+                  : <span style={{ color: C.mutedLt }}>No picks yet</span>
+                }
               </div>
             </div>
             <div style={{ textAlign: "right" }}>
